@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+
+# Outputs
+*.png
+!result.png
+outputs/
+server/output/
+server/data/
+
+# Runtime logs
+logs/
+*.log
+!result.log
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# HuggingFace cache (user should manage their own)
+huggingface_cache/

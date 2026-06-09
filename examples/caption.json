@@ -1,0 +1,31 @@
+{
+  "high_level_description": "A cinematic portrait photograph of a young Korean woman wearing an elegant traditional hanbok, standing in a serene dawn garden with morning mist, her gentle dark eyes looking softly toward the camera with hands gracefully clasped at her waist.",
+  "style_description": {
+    "aesthetics": "cinematic photography, ultra realistic, high detail fabric texture, 4k",
+    "lighting": "soft golden hour backlight filtering through willow branches, gentle fill from the front, subtle rim light on the hanbok silhouette",
+    "photo": "portrait, 85mm f/1.4, shallow depth of field, three-quarter body framing",
+    "medium": "digital photograph",
+    "color_palette": ["#F5EFE6", "#C49A6C", "#2D5A3A", "#D4A5A5", "#8B6B4A", "#E8D5B7"]
+  },
+  "compositional_deconstruction": {
+    "background": "A serene Korean garden at dawn dissolving into soft mist. Weathered stone wall partially visible on one side with delicate moss, a gnarled pine branch entering from the upper frame edge. Soft out-of-focus willow strands filtering the golden backlight, creating scattered bokeh circles in warm amber and pale green tones. The overall grade is warm-neutral with subtle desaturated greens, fine cinematic grain across the frame.",
+    "elements": [
+      {
+        "type": "obj",
+        "desc": "Soft willow branches entering from the upper-left corner, partially out of focus, catching the golden morning light and framing the top edge of the composition."
+      },
+      {
+        "type": "obj",
+        "desc": "Young Korean woman filling the center of the frame as the unambiguous focal subject. Her dark hair is pulled into a neat, low traditional updo beneath the headpiece, with a few soft strands framing her face. Gentle, serene expression with lips gently closed, dark brown eyes catching the warm key light, gaze directed softly toward the camera. Her skin has a natural, detailed texture with subtle dewiness. Both hands are gracefully clasped at her waist, fingers lightly interlaced over the hanbok. In three-quarter front view facing the camera. A golden backlight from behind and above creates a soft halo along her shoulders and headpiece; a gentle fill from the front preserves detail in her face."
+      },
+      {
+        "type": "obj",
+        "desc": "An elegant traditional Korean hanbok in soft cream and rose-pink tones. The jeogori (short jacket) is pale cream with subtle embroidered floral patterns along the collar in muted gold thread, with a long ribbon (goreum) tied neatly at the chest. The chima (full wrap skirt) flows in layers of dusty rose and soft pink, with delicate visible silk texture catching the backlight and creating luminous edges where the light passes through. A small traditional headpiece rests atop her hair. The fabric has a gentle sheen on the highlights while the shadowed folds fall into deep warm tones."
+      },
+      {
+        "type": "obj",
+        "desc": "Floating dust motes suspended in the golden morning light around her, tiny bright specks catching the backlight rays filtering through the willow branches, creating an ethereal atmosphere against the darker garden backdrop."
+      }
+    ]
+  }
+}
