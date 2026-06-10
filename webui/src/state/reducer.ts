@@ -13,6 +13,8 @@ export interface AppState {
   images: ImageEntry[];
   selectedPreset: string | null;
   resultImage: ImageEntry | null;
+  selectedPromptId: number | null;
+  historyRefresh: number;
 }
 
 export const initialState: AppState = {
@@ -26,6 +28,8 @@ export const initialState: AppState = {
   images: [],
   selectedPreset: null,
   resultImage: null,
+  selectedPromptId: null,
+  historyRefresh: 0,
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -57,11 +61,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           const caption = JSON.parse(loaded.rawJson);
           const patch = captionToForm(caption);
           const { rawJson: _, ...formPatch } = patch;
-          return { ...state, form: { ...loaded, ...formPatch } };
+          return { ...state, form: { ...loaded, ...formPatch }, selectedPromptId: action.promptId ?? null };
         } catch { /* keep form as-is */ }
       }
       const syncedJson = JSON.stringify(buildCaptionJson(loaded), null, 2);
-      return { ...state, form: { ...loaded, rawJson: syncedJson } };
+      return { ...state, form: { ...loaded, rawJson: syncedJson }, selectedPromptId: action.promptId ?? null };
     }
 
     case "ADD_ELEMENT": {
@@ -108,6 +112,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "SHOW_RESULT":
       return { ...state, resultImage: action.entry };
+
+    case "REFRESH_HISTORY":
+      return { ...state, historyRefresh: state.historyRefresh + 1 };
 
     default:
       return state;

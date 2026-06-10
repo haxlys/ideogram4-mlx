@@ -6,24 +6,32 @@ from pathlib import Path
 
 LOG_DIR = Path(os.environ.get("IDEOGRAM4_LOG_DIR", Path(__file__).resolve().parent.parent / "logs"))
 
-_process_logger: logging.Logger | None = None
+_loggers: dict[str, logging.Logger] = {}
 _log_file: Path | None = None
+_log_ts: str = ""
 
 
 def get_logger(name: str) -> logging.Logger:
-    global _process_logger, _log_file
-    if _process_logger is not None:
-        return _process_logger
+    global _log_file, _log_ts
+
+    if name in _loggers:
+        return _loggers[name]
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    _log_file = LOG_DIR / f"{name}-{ts}.log"
+
+    if _log_ts:
+        ts = _log_ts
+    else:
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        _log_ts = ts
+
+    log_file = LOG_DIR / f"{name}-{ts}.log"
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
 
-    fh = logging.FileHandler(str(_log_file), encoding="utf-8")
+    fh = logging.FileHandler(str(log_file), encoding="utf-8")
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(logging.Formatter(
         "%(asctime)s  %(levelname)-7s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
@@ -36,8 +44,8 @@ def get_logger(name: str) -> logging.Logger:
     logger.addHandler(fh)
     logger.addHandler(sh)
 
-    logger.info("Log file: %s", _log_file)
-    _process_logger = logger
+    logger.info("Log file: %s", log_file)
+    _loggers[name] = logger
     return logger
 
 

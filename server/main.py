@@ -97,6 +97,7 @@ class MagicPromptRequest(BaseModel):
     prompt: str
     width: int = 1024
     height: int = 1024
+    image_b64: str | None = None
 
 
 @app.post("/api/magic-prompt")
@@ -104,8 +105,8 @@ def api_magic_prompt(req: MagicPromptRequest):
     logger.info("Magic prompt request: %dx%d", req.width, req.height)
     from magic_prompt import expand_prompt
     try:
-        caption = expand_prompt(req.prompt, req.width, req.height)
-        model = os.environ.get("IDEOGRAM4_MAGIC_PROMPT_MODEL", "deepseek/deepseek-v4-flash")
+        caption = expand_prompt(req.prompt, req.width, req.height, req.image_b64)
+        model = os.environ.get("IDEOGRAM4_MAGIC_PROMPT_MODEL", "MiniMaxAI/MiniMax-M3")
         return {"caption": caption, "model": model}
     except Exception as e:
         logger.error("Magic prompt failed: %s", str(e))

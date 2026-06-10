@@ -54,14 +54,15 @@ export interface PromptEntry extends FormState {
 export type AppAction =
   | { type: "SET_MODEL_STATE"; state: ModelState }
   | { type: "SET_FORM"; form: Partial<FormState> }
-  | { type: "RESTORE_FORM"; form: FormState }
+  | { type: "RESTORE_FORM"; form: FormState; promptId?: number }
   | { type: "ADD_ELEMENT" }
   | { type: "REMOVE_ELEMENT"; index: number }
   | { type: "UPDATE_ELEMENT"; index: number; field: keyof FormElement; value: string }
   | { type: "SET_GEN_STATUS"; status: GenStatus; msg?: string; taskId?: string | null; progress?: number; totalSteps?: number }
   | { type: "ADD_IMAGE"; entry: ImageEntry }
   | { type: "SET_IMAGES"; entries: ImageEntry[] }
-  | { type: "SHOW_RESULT"; entry: ImageEntry | null };
+  | { type: "SHOW_RESULT"; entry: ImageEntry | null }
+  | { type: "REFRESH_HISTORY" };
 
 export const DEFAULT_FORM: FormState = {
   hld: "",

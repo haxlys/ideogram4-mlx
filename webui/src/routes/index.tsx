@@ -54,6 +54,7 @@ function EditorPage() {
       ...state.form,
       hld: state.form.rawJson.trim() ? (caption.high_level_description || state.form.hld) : state.form.hld,
     }).then((promptId) => {
+      dispatch({ type: "REFRESH_HISTORY" });
       dispatch({ type: "SET_GEN_STATUS", status: "submitting", msg: "Submitting…" });
 
       submitGenerate({
@@ -118,7 +119,7 @@ function EditorPage() {
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           <CaptionEditor />
 
-          <div className="space-y-5">
+          <div className="sticky top-[53px] max-h-[calc(100dvh-53px)] overflow-y-auto space-y-5 py-8 px-1">
             <GenerationSettings />
 
             <Button

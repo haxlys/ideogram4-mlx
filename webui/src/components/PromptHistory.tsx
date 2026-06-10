@@ -24,11 +24,11 @@ export function PromptHistory({ sidebar }: PromptHistoryProps) {
 
   useEffect(() => {
     loadPromptHistory().then(setEntries);
-  }, []);
+  }, [state.historyRefresh]);
 
   const restore = useCallback(async (entry: PromptEntry) => {
     const { _savedAt, _id, ...form } = entry;
-    dispatch({ type: "RESTORE_FORM", form });
+    dispatch({ type: "RESTORE_FORM", form, promptId: _id ?? undefined });
     if (_id != null) {
       try {
         const images = await getImages(_id);
@@ -75,7 +75,7 @@ export function PromptHistory({ sidebar }: PromptHistoryProps) {
     <ScrollArea className={sidebar ? "flex-1" : undefined}>
       <div className="space-y-0.5 p-2">
         {entries.map((entry, i) => {
-          const active = sidebar && entry.hld === state.form.hld && entry.preset === state.form.preset && entry.w === state.form.w && entry.h === state.form.h;
+          const active = sidebar && entry._id != null && entry._id === state.selectedPromptId;
           return (
           <button
             key={entry._id ?? i}

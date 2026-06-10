@@ -38,6 +38,7 @@ export function useGeneratePolling() {
             };
             dispatch({ type: "ADD_IMAGE", entry });
             dispatch({ type: "SHOW_RESULT", entry });
+            dispatch({ type: "REFRESH_HISTORY" });
             dispatch({
               type: "SET_GEN_STATUS",
               status: "done",

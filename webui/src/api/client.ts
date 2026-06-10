@@ -86,11 +86,11 @@ interface MagicPromptResponse {
   model: string;
 }
 
-export async function magicPrompt(prompt: string, width: number, height: number) {
+export async function magicPrompt(prompt: string, width: number, height: number, imageB64?: string | null) {
   return request<MagicPromptResponse>("/api/magic-prompt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, width, height }),
+    body: JSON.stringify({ prompt, width, height, image_b64: imageB64 }),
   });
 }
 

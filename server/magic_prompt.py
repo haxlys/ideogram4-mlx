@@ -14,7 +14,7 @@ from ideogram4.magic_prompt import (
 
 
 BASE_URL = "https://api.commandcode.ai/provider/v1"
-DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+DEFAULT_MODEL = "MiniMaxAI/MiniMax-M3"
 
 
 def _get_config():
@@ -61,13 +61,70 @@ def _strip_code_fences(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def expand_prompt(prompt: str, width: int, height: int) -> dict:
+STYLE_INSTRUCTION = """
+## STYLE_DESCRIPTION — structured style field (required, after HLD)
+
+Emit a `style_description` object as the second top-level key, right after `high_level_description`. This replaces the inline style prose in HLD — keep HLD focused on subject/composition, move all style detail here:
+
+```json
+{"medium":"...","aesthetics":"...","lighting":"...","photo":"..."|"art_style":"...","color_palette":["#RRGGBB",...]}
+```
+
+- `medium`: exactly one of photograph / illustration / 3d_render / painting / graphic_design.
+- `aesthetics`: short phrase (e.g. "cinematic, ultra realistic, 4k", "flat vector, bold colors").
+- `lighting`: short phrase (e.g. "soft diffused daylight", "dramatic rim lighting from left").
+- `photo` OR `art_style`: exactly one, depending on medium. photo media get `photo` (camera/lens spec), others get `art_style` (e.g. "watercolor", "Studio Ghibli").
+- `color_palette`: array of 3–8 hex colors (#RRGGBB) that dominate the scene.
+- All non-array string values are one short phrase each. No long paragraphs.
+- UNKNOWN KEY BAN: never add keys not listed above (no `image_style`, `camera`, `render_type`, etc).
+"""
+
+OUTPUT_CONTRACT_OVERRIDE = """## OUTPUT CONTRACT — exactly four top-level keys, in this order:
+{"aspect_ratio":"W:H","high_level_description":"...","style_description":{...},"compositional_deconstruction":{"background":"...","elements":[...]}}
+"""
+
+
+def _build_augmented_messages(prompt: str, aspect_ratio: str) -> list[dict]:
+    sections = _load_sections("v1.txt")
+    system = sections["system"]
+
+    old_contract = "## OUTPUT CONTRACT — exactly three top-level keys, in this order:"
+    new_contract = "## OUTPUT CONTRACT — exactly four top-level keys, in this order:"
+    system = system.replace(old_contract, new_contract)
+
+    old_example = '{"aspect_ratio":"W:H","high_level_description":"...","compositional_deconstruction":{"background":"...","elements":[ ... ]}}'
+    new_example = '{"aspect_ratio":"W:H","high_level_description":"...","style_description":{...},"compositional_deconstruction":{"background":"...","elements":[...]}}'
+    system = system.replace(old_example, new_example)
+
+    system += STYLE_INSTRUCTION
+
+    template = sections.get("user")
+    if template is None:
+        template = "TARGET IMAGE ASPECT RATIO: {{aspect_ratio}} (width:height)."
+    user = template.replace("{{aspect_ratio}}", aspect_ratio)
+    if "{{original_prompt}}" in user:
+        user = user.replace("{{original_prompt}}", prompt)
+    else:
+        user = f"{user}\n\n{prompt}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def expand_prompt(prompt: str, width: int, height: int, image_b64: str | None = None) -> dict:
     api_key, model = _get_config()
     if not api_key:
         raise RuntimeError("IDEOGRAM4_MAGIC_PROMPT_API_KEY is not set")
 
     aspect_ratio = aspect_ratio_from_size(width, height)
-    messages = build_messages("v1.txt", prompt, aspect_ratio)
+    messages = _build_augmented_messages(prompt, aspect_ratio)
+
+    if image_b64:
+        messages[-1]["content"] = [
+            {"type": "text", "text": messages[-1]["content"]},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+        ]
 
     raw = _chat_completion(messages, model, api_key)
     raw = _strip_code_fences(raw)

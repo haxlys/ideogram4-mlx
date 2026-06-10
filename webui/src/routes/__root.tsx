@@ -20,7 +20,7 @@ function RootLayout() {
   const navigate = useNavigate();
 
   const handleCreateNew = () => {
-    dispatch({ type: "RESTORE_FORM", form: DEFAULT_FORM });
+    dispatch({ type: "RESTORE_FORM", form: DEFAULT_FORM, promptId: undefined });
     navigate({ to: "/" });
   };
 
