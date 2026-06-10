@@ -63,7 +63,7 @@ function EditorPage() {
         width: state.form.w,
         height: state.form.h,
         preset: state.form.preset,
-        seed: Number(state.form.seed) || 20260608,
+        seed: Number(state.form.seed) || Math.floor(Math.random() * 2**32),
       });
 
       dispatch({ type: "SET_GEN_STATUS", status: "running", msg: "Starting…", taskId: res.task_id });

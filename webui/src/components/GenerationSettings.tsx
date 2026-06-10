@@ -14,6 +14,7 @@ import type { FormState } from "@/state/types";
 import { STEPS_MAP, estimateTime, RESOLUTION_PRESETS } from "@/state/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Shuffle } from "lucide-react";
 
 const PRESETS: FormState["preset"][] = ["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"];
 
@@ -188,13 +189,28 @@ export function GenerationSettings() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="seed" className="text-[13px] font-medium">Seed</Label>
-            <Input
-              id="seed"
-              value={form.seed}
-              onChange={(e) =>
-                dispatch({ type: "SET_FORM", form: { seed: e.target.value } })
-              }
-            />
+            <div className="flex gap-1">
+              <Input
+                id="seed"
+                value={form.seed}
+                onChange={(e) =>
+                  dispatch({ type: "SET_FORM", form: { seed: e.target.value } })
+                }
+                placeholder="random"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="shrink-0"
+                onClick={() =>
+                  dispatch({ type: "SET_FORM", form: { seed: String(Math.floor(Math.random() * 2**32)) } })
+                }
+                title="Random seed"
+              >
+                <Shuffle className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
 

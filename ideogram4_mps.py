@@ -25,6 +25,7 @@ import json
 import logging
 import math
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -236,9 +237,11 @@ def main():
         default="V4_QUALITY_48",
         choices=["V4_QUALITY_48", "V4_DEFAULT_20", "V4_TURBO_12"],
     )
-    parser.add_argument("--seed", type=int, default=20260608)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--out", type=Path, required=True, help="Output PNG path")
     args = parser.parse_args()
+    if args.seed is None:
+        args.seed = random.randint(0, 2**32 - 1)
 
     logger = _get_logger()
 

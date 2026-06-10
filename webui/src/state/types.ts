@@ -73,7 +73,7 @@ export const DEFAULT_FORM: FormState = {
   w: 1024,
   h: 1024,
   preset: "V4_QUALITY_48",
-  seed: "20260608",
+  seed: "",
   rawJson: "",
 };
 
