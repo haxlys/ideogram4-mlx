@@ -77,6 +77,10 @@ Emit a `style_description` object as the second top-level key, right after `high
 - `color_palette`: array of 3–8 hex colors (#RRGGBB) that dominate the scene.
 - All non-array string values are one short phrase each. No long paragraphs.
 - UNKNOWN KEY BAN: never add keys not listed above (no `image_style`, `camera`, `render_type`, etc).
+
+## TRANSPARENT BACKGROUND — only when explicitly requested
+
+NEVER emit a transparent background UNLESS the user's idea explicitly asks for it using phrases like "transparent", "transparent background", "cutout", "isolated", "alpha channel", "no background", "PNG with transparency", "sticker style". In all other cases the background MUST describe a real scene, surface, wall, sky, or environment. Default: always a CONCRETE background description. The string `"transparent background"` is restricted to explicit requests only.
 """
 
 OUTPUT_CONTRACT_OVERRIDE = """## OUTPUT CONTRACT — exactly four top-level keys, in this order:

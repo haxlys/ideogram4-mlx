@@ -33,3 +33,6 @@ logs/
 
 # HuggingFace cache (user should manage their own)
 huggingface_cache/
+
+# LoRA weights
+models/

@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import os
+import resource
 import threading
 import time
 import uuid
@@ -206,7 +207,13 @@ def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: 
         gen_s = time.time() - t0
         _tasks[task_id]["progress"] = 100
         _tasks[task_id]["msg"] = f"Done in {gen_s:.1f}s"
-        logger.info("Task %s done in %.1fs", task_id, gen_s)
+
+        mem_mps = torch.mps.driver_allocated_memory() if torch.backends.mps.is_available() else 0
+        mem_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        logger.info("Task %s done in %.1fs  |  MPS: %.1f GB  |  RSS: %.1f GB",
+                     task_id, gen_s,
+                     mem_mps / (1024**3),
+                     mem_rss / (1024**2))
 
         buf = BytesIO()
         save_kw = {}
@@ -223,14 +230,19 @@ def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: 
         buf.seek(0)
 
         hld_text = caption.get("high_level_description", "")
+        lora_status = get_lora_status()
+        lora_name = lora_status.get("applied")
+        lora_strength = lora_status.get("strength") if lora_name else None
 
         image_id = add_image(
             hld_text, width, height, preset, seed,
             str(filepath),
             _tasks[task_id].get("prompt_id"),
+            lora_name,
+            lora_strength,
         )
 
-        logger.info("Task %s → %s (id=%d, %dx%d)", task_id, filename, image_id, width, height)
+        logger.info("Task %s → %s (id=%d, %dx%d, lora=%s)", task_id, filename, image_id, width, height, lora_name or "none")
 
         _tasks[task_id]["state"] = "done"
         _tasks[task_id]["image_b64"] = base64.b64encode(buf.getvalue()).decode()
@@ -243,6 +255,8 @@ def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: 
             "prompt_id": _tasks[task_id].get("prompt_id"),
             "image_id": image_id,
             "filename": filename,
+            "lora_name": lora_name,
+            "lora_strength": lora_strength,
         }
 
     except Exception as e:

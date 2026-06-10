@@ -36,7 +36,9 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
             preset      TEXT NOT NULL DEFAULT 'V4_QUALITY_48',
             seed        INTEGER NOT NULL DEFAULT 0,
             file_path   TEXT NOT NULL,
-            prompt_id   INTEGER
+            prompt_id   INTEGER,
+            lora_name   TEXT,
+            lora_strength REAL
         );
 
         CREATE TABLE IF NOT EXISTS prompts (
@@ -55,15 +57,23 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
         conn.execute("ALTER TABLE images ADD COLUMN prompt_id INTEGER")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE images ADD COLUMN lora_name TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE images ADD COLUMN lora_strength REAL")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
 
-def add_image(hld: str, width: int, height: int, preset: str, seed: int, file_path: str, prompt_id: int | None = None) -> int:
+def add_image(hld: str, width: int, height: int, preset: str, seed: int, file_path: str, prompt_id: int | None = None, lora_name: str | None = None, lora_strength: float | None = None) -> int:
     conn = _conn()
     cur = conn.execute(
-        "INSERT INTO images (hld, width, height, preset, seed, file_path, prompt_id) VALUES (?,?,?,?,?,?,?)",
-        (hld, width, height, preset, seed, file_path, prompt_id),
+        "INSERT INTO images (hld, width, height, preset, seed, file_path, prompt_id, lora_name, lora_strength) VALUES (?,?,?,?,?,?,?,?,?)",
+        (hld, width, height, preset, seed, file_path, prompt_id, lora_name, lora_strength),
     )
     conn.commit()
     image_id = cur.lastrowid
