@@ -80,9 +80,7 @@ function EditorPage() {
     <ScrollArea className="flex-1">
       <main className="mx-auto max-w-5xl px-4 py-8">
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-          <ScrollArea className="lg:max-h-[calc(100dvh-10rem)]">
-            <CaptionEditor />
-          </ScrollArea>
+          <CaptionEditor />
 
           <div className="space-y-5">
             <GenerationSettings />
