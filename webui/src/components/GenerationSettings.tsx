@@ -15,6 +15,7 @@ import { STEPS_MAP, estimateTime, RESOLUTION_PRESETS } from "@/state/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Shuffle } from "lucide-react";
+import { LoRASelector } from "./LoRASelector";
 
 const PRESETS: FormState["preset"][] = ["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"];
 
@@ -188,29 +189,48 @@ export function GenerationSettings() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="seed" className="text-[13px] font-medium">Seed</Label>
-            <div className="flex gap-1">
-              <Input
-                id="seed"
-                value={form.seed}
-                onChange={(e) =>
-                  dispatch({ type: "SET_FORM", form: { seed: e.target.value } })
-                }
-                placeholder="random"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="shrink-0"
-                onClick={() =>
-                  dispatch({ type: "SET_FORM", form: { seed: String(Math.floor(Math.random() * 2**32)) } })
-                }
-                title="Random seed"
-              >
-                <Shuffle className="size-4" />
-              </Button>
-            </div>
+            <Label htmlFor="format" className="text-[13px] font-medium">Format</Label>
+            <Select
+              value={form.format}
+              onValueChange={(v) => v &&
+                dispatch({ type: "SET_FORM", form: { format: v as FormState["format"] } })
+              }
+            >
+              <SelectTrigger id="format">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="webp">WebP (lossless)</SelectItem>
+                <SelectItem value="png">PNG</SelectItem>
+                <SelectItem value="jpeg">JPEG</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="seed" className="text-[13px] font-medium">Seed</Label>
+          <div className="flex gap-1">
+            <Input
+              id="seed"
+              value={form.seed}
+              onChange={(e) =>
+                dispatch({ type: "SET_FORM", form: { seed: e.target.value } })
+              }
+              placeholder="random"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              onClick={() =>
+                dispatch({ type: "SET_FORM", form: { seed: String(Math.floor(Math.random() * 2**32)) } })
+              }
+              title="Random seed"
+            >
+              <Shuffle className="size-4" />
+            </Button>
           </div>
         </div>
 
@@ -225,6 +245,8 @@ export function GenerationSettings() {
             </span>
           )}
         </div>
+
+        <LoRASelector />
       </CardContent>
     </Card>
   );

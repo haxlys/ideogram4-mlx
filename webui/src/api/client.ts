@@ -13,6 +13,7 @@ interface GenerateRequest {
   height: number;
   preset: string;
   seed: number;
+  format: string;
   prompt_id?: number | null;
 }
 
@@ -44,7 +45,12 @@ interface VerifyResponse {
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    let msg = `HTTP ${res.status}: ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body.error) msg = body.error;
+    } catch {}
+    throw new Error(msg);
   }
   return res.json();
 }
@@ -86,11 +92,11 @@ interface MagicPromptResponse {
   model: string;
 }
 
-export async function magicPrompt(prompt: string, width: number, height: number, imageB64?: string | null) {
+export async function magicPrompt(prompt: string, width: number, height: number, imagesB64?: string[] | null) {
   return request<MagicPromptResponse>("/api/magic-prompt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, width, height, image_b64: imageB64 }),
+    body: JSON.stringify({ prompt, width, height, images_b64: imagesB64 }),
   });
 }
 
@@ -102,3 +108,10 @@ export async function getPrompts() { return request<PromptRow[]>('/api/prompts')
 export async function savePromptApi(hld: string, formJson: string) { return request<{id:number}>('/api/prompts', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({hld, form_json: formJson}) }); }
 export async function deletePromptApi(promptId: number) { return request<{ok:boolean}>(`/api/prompts/${promptId}`, { method: 'DELETE' }); }
 export async function saveLastFormApi(formJson: string) { return request<{ok:boolean}>('/api/form', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({form_json: formJson}) }); }
+
+interface LoraEntry { name: string; path: string; format: string; size_mb: number; }
+interface LoraStatus { applied: string | null; strength: number; available: LoraEntry[]; }
+
+export async function getLoraStatus() { return request<LoraStatus>('/api/lora/status'); }
+export async function applyLora(name: string, strength: number) { return request<{ok: boolean; msg: string}>('/api/lora/apply', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, strength}) }); }
+export async function removeLora() { return request<{ok: boolean; msg: string}>('/api/lora/remove', { method: 'POST' }); }

@@ -17,10 +17,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from db import init_db, get_images, delete_image, get_prompts, save_prompt, delete_prompt, get_last_form, save_last_form, add_image, OUTPUT_DIR
+from db import init_db, get_images, delete_image, get_prompts, save_prompt, delete_prompt, get_last_form, save_last_form, add_image, OUTPUT_DIR, get_prompt
 from logger import get_logger, get_log_file
 from model_daemon import (
     handle_load, handle_unload, handle_status, get_pipeline, is_mps_available,
+    list_loras, apply_lora, remove_lora, get_lora_status,
 )
 
 logger = get_logger("server")
@@ -78,6 +79,27 @@ def api_unload_model():
     return handle_unload()
 
 
+# ── LoRA endpoints ───────────────────────────────────────────────
+
+@app.get("/api/lora/status")
+def api_lora_status():
+    return get_lora_status()
+
+
+@app.post("/api/lora/apply")
+def api_apply_lora(req: dict):
+    name = req.get("name", "")
+    strength = float(req.get("strength", 0.6))
+    if not name:
+        return {"ok": False, "msg": "Missing LoRA name."}
+    return apply_lora(name, strength)
+
+
+@app.post("/api/lora/remove")
+def api_remove_lora():
+    return remove_lora()
+
+
 # ── Validation / Magic prompt ─────────────────────────────────────
 
 class VerifyRequest(BaseModel):
@@ -99,7 +121,7 @@ class MagicPromptRequest(BaseModel):
     prompt: str
     width: int = 1024
     height: int = 1024
-    image_b64: str | None = None
+    images_b64: list[str] | None = None
 
 
 @app.post("/api/magic-prompt")
@@ -107,7 +129,7 @@ def api_magic_prompt(req: MagicPromptRequest):
     logger.info("Magic prompt request: %dx%d", req.width, req.height)
     from magic_prompt import expand_prompt
     try:
-        caption = expand_prompt(req.prompt, req.width, req.height, req.image_b64)
+        caption = expand_prompt(req.prompt, req.width, req.height, req.images_b64)
         model = os.environ.get("IDEOGRAM4_MAGIC_PROMPT_MODEL", "MiniMaxAI/MiniMax-M3")
         return {"caption": caption, "model": model}
     except Exception as e:
@@ -124,10 +146,11 @@ class GenerateRequest(BaseModel):
     height: int = 1024
     preset: str = "V4_QUALITY_48"
     seed: int = 20260608
+    format: str = "webp"
     prompt_id: int | None = None
 
 
-def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: str, seed: int):
+def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: str, seed: int, fmt: str = "webp"):
     from ideogram4.sampler_configs import PRESETS
 
     try:
@@ -186,11 +209,15 @@ def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: 
         logger.info("Task %s done in %.1fs", task_id, gen_s)
 
         buf = BytesIO()
-        images[0].save(buf, format="PNG")
+        save_kw = {}
+        if fmt in ("webp", "jpeg"):
+            save_kw["quality"] = 90 if fmt == "webp" else 95
+        PIL_fmt = fmt.upper()
+        images[0].save(buf, format=PIL_fmt, **save_kw)
         buf.seek(0)
 
         timestamp = uuid.uuid4().hex[:12]
-        filename = f"{timestamp}.png"
+        filename = f"{timestamp}.{fmt}"
         filepath = OUTPUT_DIR / filename
         filepath.write_bytes(buf.getvalue())
         buf.seek(0)
@@ -240,7 +267,7 @@ def api_generate(req: GenerateRequest):
 
     t = threading.Thread(
         target=_run_generate,
-        args=(task_id, req.caption, req.width, req.height, req.preset, req.seed),
+        args=(task_id, req.caption, req.width, req.height, req.preset, req.seed, req.format),
         daemon=True,
     )
     t.start()
@@ -332,6 +359,14 @@ def api_serve_image(image_id: int):
 @app.get("/api/prompts")
 def api_get_prompts():
     return get_prompts()
+
+
+@app.get("/api/prompts/{prompt_id}")
+def api_get_single_prompt(prompt_id: int):
+    p = get_prompt(prompt_id)
+    if p is None:
+        return {"error": "not found"}
+    return p
 
 
 @app.post("/api/prompts")

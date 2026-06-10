@@ -25,6 +25,7 @@ export interface FormState {
   h: number;
   preset: "V4_TURBO_12" | "V4_DEFAULT_20" | "V4_QUALITY_48";
   seed: string;
+  format: "png" | "webp" | "jpeg";
   rawJson: string;
 }
 
@@ -77,6 +78,7 @@ export const DEFAULT_FORM: FormState = {
   h: 1024,
   preset: "V4_QUALITY_48",
   seed: "",
+  format: "webp",
   rawJson: "",
 };
 
