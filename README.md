@@ -66,16 +66,21 @@ Browser (localhost:5173)
     │ HTTP (Vite dev proxy /api → localhost:8000)
     ▼
 FastAPI Server (server/main.py, port 8000)
-    │  Owns the Ideogram4Pipeline directly in the same process.
-    │  Model load/unload, generation, image persistence, SQLite.
-    │  Uses threading.Thread for pipeline ops.
     │
-    ▼
-Ideogram 4 Pipeline (FP8 → bf16 on CPU → MPS)
-       ideogram-4-fp8 weights from HuggingFace
-       Qwen3-VL text encoder (text-only, no vision components)
-       Conditional + Unconditional transformers (9.3B params each)
-       VAE autoencoder
+    ├── model_daemon.py    ← model lifecycle, LoRA, get_pipeline()
+    │     ├── LoRA apply/remove (server/apply_lora.py)
+    │     │     Lokr / standard weight merge → load_state_dict()
+    │     └── Ideogram4Pipeline (MPS)
+    │           FP8 → bf16 on CPU → MPS
+    │           Qwen3-VL text encoder (text-only)
+    │           Conditional + Unconditional transformers
+    │           VAE autoencoder
+    │
+    ├── magic_prompt.py    ← POST /api/magic-prompt → commandcode.ai
+    │
+    ├── db.py              ← SQLite (images, prompts, form state)
+    │
+    └── logger.py          ← structured logs → logs/
 ```
 
 ### Key ports
