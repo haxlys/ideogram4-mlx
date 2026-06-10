@@ -112,7 +112,7 @@ def _build_augmented_messages(prompt: str, aspect_ratio: str) -> list[dict]:
     ]
 
 
-def expand_prompt(prompt: str, width: int, height: int, image_b64: str | None = None) -> dict:
+def expand_prompt(prompt: str, width: int, height: int, images_b64: list[str] | None = None) -> dict:
     api_key, model = _get_config()
     if not api_key:
         raise RuntimeError("IDEOGRAM4_MAGIC_PROMPT_API_KEY is not set")
@@ -120,11 +120,11 @@ def expand_prompt(prompt: str, width: int, height: int, image_b64: str | None = 
     aspect_ratio = aspect_ratio_from_size(width, height)
     messages = _build_augmented_messages(prompt, aspect_ratio)
 
-    if image_b64:
-        messages[-1]["content"] = [
-            {"type": "text", "text": messages[-1]["content"]},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
-        ]
+    if images_b64:
+        content: list[dict] = [{"type": "text", "text": messages[-1]["content"]}]
+        for b64 in images_b64:
+            content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+        messages[-1]["content"] = content
 
     raw = _chat_completion(messages, model, api_key)
     raw = _strip_code_fences(raw)
