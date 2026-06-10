@@ -19,6 +19,7 @@ Usage:
 
 Presets: V4_QUALITY_48 (best), V4_DEFAULT_20, V4_TURBO_12
 Resolutions: any multiple of 16 (512, 768, 1024, 1536, 2048)
+Formats: png (default), webp (lossless), jpeg
 """
 import argparse
 import json
@@ -238,7 +239,17 @@ def main():
         choices=["V4_QUALITY_48", "V4_DEFAULT_20", "V4_TURBO_12"],
     )
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--out", type=Path, required=True, help="Output PNG path")
+    parser.add_argument(
+        "--format", type=str, default="png", choices=["png", "webp", "jpeg"],
+        help="Image format (default: png). webp saves lossless.",
+    )
+    parser.add_argument(
+        "--quality", type=int, default=None,
+        help="Lossy quality 1-100 (webp/jpeg only; default: lossless)",
+    )
+    parser.add_argument("--out", type=Path, required=True, help="Output image path")
+    parser.add_argument("--lora", type=Path, default=None, help="LoRA safetensors path to apply")
+    parser.add_argument("--lora-strength", type=float, default=0.6, help="LoRA strength (default: 0.6)")
     args = parser.parse_args()
     if args.seed is None:
         args.seed = random.randint(0, 2**32 - 1)
@@ -269,6 +280,17 @@ def main():
         logger.warning("Not JSON — Ideogram 4 needs structured captions for quality")
 
     pipe = load_pipeline(snapshot, device)
+
+    if args.lora:
+        from apply_lora import apply_lokr_lora, apply_std_lora
+        is_lokr = any("lokr_w1" in k for k in sf.load_file(str(args.lora)).keys())
+        logger.info("Applying LoRA: %s (strength=%.2f, format=%s)", args.lora.name, args.lora_strength, "lokr" if is_lokr else "standard")
+        sd_cond = pipe.conditional_transformer.state_dict()
+        (apply_lokr_lora if is_lokr else apply_std_lora)(sd_cond, str(args.lora), strength=args.lora_strength)
+        pipe.conditional_transformer.load_state_dict(sd_cond, strict=False)
+        sd_uncond = pipe.unconditional_transformer.state_dict()
+        (apply_lokr_lora if is_lokr else apply_std_lora)(sd_uncond, str(args.lora), strength=args.lora_strength)
+        pipe.unconditional_transformer.load_state_dict(sd_uncond, strict=False)
 
     logger.info("Warming up MPSGraph kernels...")
     with torch.inference_mode():
@@ -322,9 +344,15 @@ def main():
         )
     gen_s = time.time() - t0
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    images[0].save(args.out)
-    logger.info("Done: %.1fs -> %s", gen_s, args.out)
+    out = args.out.with_suffix(f".{args.format}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    save_kw = {}
+    if args.format in ("webp", "jpeg"):
+        save_kw["quality"] = args.quality or 95
+        if args.format == "webp":
+            save_kw["lossless"] = args.quality is None
+    images[0].save(out, format=args.format.upper(), **save_kw)
+    logger.info("Done: %.1fs -> %s", gen_s, out)
 
     log = {
         "preset": args.preset,
@@ -332,13 +360,14 @@ def main():
         "steps": preset.num_steps,
         "seed": args.seed,
         "generation_seconds": round(gen_s, 1),
-        "output": str(args.out),
+        "output": str(out),
+        "format": args.format,
         "torch": torch.__version__,
         "device": "mps",
         "prompt": prompt,
         "cmd": " ".join(sys.argv),
     }
-    args.out.with_suffix(".log").write_text(
+    out.with_suffix(".log").write_text(
         json.dumps(log, ensure_ascii=False, indent=2)
     )
 
