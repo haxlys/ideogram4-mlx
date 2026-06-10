@@ -107,13 +107,14 @@ cd webui && pnpm dev
 ## WebUI features
 
 - **Model Panel** — Load / Unload controls with live status indicator (idle / loading / loaded)
-- **Caption Editor** — Tabbed interface: structured form (scene, style, composition) or raw JSON
+- **Quick Prompt** — Natural language → structured caption via LLM (MiniMaxAI/MiniMax-M3). Supports text-only and text+image (drag-drop, multi-image). Auto-populates all form fields including style settings.
+- **Caption Editor** — Tabbed interface: structured form (scene, style, composition) or raw JSON, with bidirectional real-time sync
 - **Style Settings** — Aesthetics, lighting, medium (photograph / illustration / 3d_render / painting / graphic_design), camera or art style, color palette
 - **Composition** — Background description + dynamic element list (type: obj/text, bbox, description)
-- **Generation Settings** — 10 aspect ratio presets with visual preview, custom width/height (128–2048px, snapped to 128), quality preset (Turbo / Default / Quality), seed, estimated generation time
+- **LoRA** — Apply/remove LoRA weights (Lokr or standard format) with strength control. Auto-detected from `models/loras/` (gitignored).
+- **Generation Settings** — 7 aspect ratio presets with visual preview, custom width/height (128–2048px, snapped to 128), quality preset (Turbo / Default / Quality), seed, estimated generation time
 - **Status Overlay** — Progress bar with percentage during generation, error state with dismiss
-- **Result Gallery** — Horizontal thumbnails with HLD overlay, lightbox full-size preview
-- **Prompt History** — Sidebar listing saved prompts, click to restore, delete per entry
+- **Prompt History** — Sidebar with persistent URLs (`/history/$promptId`), click to restore form + view result, auto-refresh on generation
 - **Auto-save** — Form state persisted via server API (SQLite) with localStorage fallback
 
 Full WebUI spec: [`docs/WEBUI_SPEC.md`](docs/WEBUI_SPEC.md) (Korean)
@@ -130,7 +131,11 @@ Full WebUI spec: [`docs/WEBUI_SPEC.md`](docs/WEBUI_SPEC.md) (Korean)
 | `--resolution` | `1024` | Square output (multiple of 16). Ignored if `--width`/`--height` set |
 | `--preset` | `V4_QUALITY_48` | `V4_QUALITY_48` / `V4_DEFAULT_20` / `V4_TURBO_12` |
 | `--seed` | `20260608` | Random seed |
-| `--out` | **required** | Output PNG path |
+| `--format` | `png` | Output format: `png` / `webp` / `jpeg` |
+| `--quality` | — | Lossy quality 1-100 (webp/jpeg only; default: lossless) |
+| `--lora` | — | Path to LoRA `.safetensors` to apply (Lokr or standard) |
+| `--lora-strength` | `0.6` | LoRA merge strength |
+| `--out` | **required** | Output image path |
 
 ## JSON caption format
 
@@ -155,15 +160,20 @@ Full format reference: https://github.com/ideogram-oss/ideogram4/blob/main/docs/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/model/status` | Model daemon state (`idle` / `loading` / `loaded`) |
+| `GET` | `/api/model/status` | Model state (`idle` / `loading` / `loaded`) |
 | `POST` | `/api/model/load` | Trigger model load |
 | `POST` | `/api/model/unload` | Unload model from memory |
+| `POST` | `/api/magic-prompt` | Natural language → structured caption via LLM |
 | `POST` | `/api/generate` | Submit generation task (JSON caption + params) |
 | `GET` | `/api/status/{task_id}` | Poll generation progress and result |
 | `POST` | `/api/verify` | Validate a JSON caption without generating |
+| `GET` | `/api/lora/status` | List available LoRAs + currently applied |
+| `POST` | `/api/lora/apply` | Apply LoRA by name with strength |
+| `POST` | `/api/lora/remove` | Restore original weights |
 | `GET` | `/api/images` | List generated images |
 | `DELETE` | `/api/images/{id}` | Delete a generated image |
 | `GET` | `/api/prompts` | List saved prompts |
+| `GET` | `/api/prompts/{id}` | Get single prompt by ID |
 | `DELETE` | `/api/prompts/{id}` | Delete a saved prompt |
 | `GET` | `/api/form` | Load last saved form state |
 | `POST` | `/api/form` | Save form state |
@@ -195,7 +205,15 @@ Logs include timestamps, severity level, and structured messages. Set
 The `.log` suffix from generation metadata (`examples/result.log`) is kept in git via
 `.gitignore` exclusion while runtime logs are ignored.
 
-## Requirements
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IDEOGRAM4_MAGIC_PROMPT_API_KEY` | — | Required for Quick Prompt (commandcode.ai API key) |
+| `IDEOGRAM4_MAGIC_PROMPT_MODEL` | `MiniMaxAI/MiniMax-M3` | LLM model for magic prompt |
+| `IDEOGRAM4_LORA_DIR` | `models/loras/` | Directory for `.safetensors` LoRA weights |
+| `IDEOGRAM4_LOG_DIR` | `logs/` | Override log directory |
+| `PYTORCH_ENABLE_MPS_FALLBACK` | `1` (set automatically) | Required for `ndtri` op |
 
 - Apple Silicon Mac (M1/M2/M3/M4/M5)
 - Python 3.11+ with pip

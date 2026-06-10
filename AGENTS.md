@@ -67,6 +67,63 @@ structured format with timestamps. Set `IDEOGRAM4_LOG_DIR` to override path.
 Generation metadata `.log` files (`examples/result.log`) are checked into git — don't
 delete them.
 
+## Magic Prompt
+
+Natural language → structured caption via LLM (WebUI Quick Prompt card).
+Server module: `server/magic_prompt.py`. API: `POST /api/magic-prompt`.
+
+Uses `MiniMaxAI/MiniMax-M3` on commandcode.ai (OpenAI-compatible). Supports
+text-only and text+image (multi-image base64) input.
+
+### Environment variables
+
+```bash
+export IDEOGRAM4_MAGIC_PROMPT_API_KEY="user_..."   # required
+# IDEOGRAM4_MAGIC_PROMPT_MODEL="MiniMaxAI/MiniMax-M3"  # default
+```
+
+Failure modes surface as toast: "Failed to expand prompt: IDEOGRAM4_MAGIC_PROMPT_API_KEY is not set".
+
+## LoRA
+
+LoRA weights (Lokr or standard lora_A/lora_B format) are merged directly into
+the `conditional_transformer` and `unconditional_transformer` state dicts.
+No runtime adapter overhead — weights are patched once, then inference runs
+at native speed. Original weights are backed up and restored on remove.
+
+### API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/lora/status` | List available LoRAs + currently applied |
+| `POST` | `/api/lora/apply` | Apply LoRA by name with strength |
+| `POST` | `/api/lora/remove` | Restore original weights |
+
+### File locations
+
+- `server/apply_lora.py` — `apply_lokr_lora()` and `apply_std_lora()` merge logic
+- `server/model_daemon.py` — `apply_lora()`, `remove_lora()`, `list_loras()`, `get_lora_status()`
+- `models/loras/` (gitignored) — `.safetensors` weight files
+- LoRA is auto-detected (Lokr vs standard) by inspecting tensor keys.
+
+### CLI
+
+```bash
+python ideogram4_mps.py --lora models/loras/foo.safetensors --lora-strength 0.6 ...
+```
+
+### Environment
+
+```bash
+export IDEOGRAM4_LORA_DIR="/path/to/models/loras"  # default: models/loras/
+```
+
+### Known issue: MPSGraph recompile overhead
+
+Merging LoRA changes weights→triggers MPSGraph JIT recompile on next inference.
+First generation after apply/remove may be measurably slower. Subsequent
+generations run at native speed.
+
 ## Unused dependencies (do not add code that relies on these)
 
 WebUI `package.json` lists `@hookform/resolvers`, `react-hook-form`, `zod` but

@@ -13,6 +13,7 @@ venv/
 !examples/result_village.png
 !examples/result_pattern.png
 !examples/webui-screenshot.png
+output/
 outputs/
 server/output/
 server/data/
