@@ -31,7 +31,7 @@ python ideogram4_mps.py \
   --prompt-file examples/caption.json \
   --resolution 1024 \
   --preset V4_QUALITY_48 \
-  --out result.png
+  --out examples/result.png
 ```
 
 ### WebUI (full stack)
@@ -111,7 +111,7 @@ python server/main.py
 cd webui && pnpm dev
 ```
 
-![WebUI screenshot](docs/webui-screenshot.png)
+![WebUI screenshot](examples/webui-screenshot.png)
 
 ## WebUI features
 
@@ -202,7 +202,7 @@ All processes write structured runtime logs to `logs/` (gitignored):
 Logs include timestamps, severity level, and structured messages. Set
 `IDEOGRAM4_LOG_DIR` to override the default `logs/` directory.
 
-The `.log` suffix from generation metadata (`result.log`) is kept in git via
+The `.log` suffix from generation metadata (`examples/result.log`) is kept in git via
 `.gitignore` exclusion while runtime logs are ignored.
 
 ## Requirements
@@ -219,9 +219,9 @@ The `.log` suffix from generation metadata (`result.log`) is kept in git via
 
 <table>
   <tr>
-    <td align="center"><img src="result.png" alt="Korean woman in hanbok, garden at dawn" width="300"/><br/><sub>한복 여인, 새벽 정원<br/>(V4_QUALITY_48, 1024×1024)</sub></td>
-    <td align="center"><img src="result_village.png" alt="Korean hanok village at twilight" width="300"/><br/><sub>황혼 녘 한옥마을<br/>(V4_QUALITY_48, 1024×1024)</sub></td>
-    <td align="center"><img src="result_pattern.png" alt="Korean traditional folk pattern illustration" width="200"/><br/><sub>전통 문양 일러스트<br/>(V4_QUALITY_48, 832×1248)</sub></td>
+    <td align="center"><img src="examples/result.png" alt="Korean woman in hanbok, garden at dawn" width="300"/><br/><sub>한복 여인, 새벽 정원<br/>(V4_QUALITY_48, 1024×1024)</sub></td>
+    <td align="center"><img src="examples/result_village.png" alt="Korean hanok village at twilight" width="300"/><br/><sub>황혼 녘 한옥마을<br/>(V4_QUALITY_48, 1024×1024)</sub></td>
+    <td align="center"><img src="examples/result_pattern.png" alt="Korean traditional folk pattern illustration" width="200"/><br/><sub>전통 문양 일러스트<br/>(V4_QUALITY_48, 832×1248)</sub></td>
   </tr>
 </table>
 

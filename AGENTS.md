@@ -29,7 +29,7 @@ cd webui && pnpm dev             # terminal 3
 
 ### CLI generation (no server needed)
 ```bash
-python ideogram4_mps.py --prompt-file examples/caption.json --out result.png
+python ideogram4_mps.py --prompt-file examples/caption.json --out examples/result.png
 ```
 
 ### WebUI-only
@@ -63,7 +63,7 @@ cd webui && pnpm lint            # ESLint
 
 All processes write to `logs/<name>-<timestamp>.log` (gitignored). Flat
 structured format with timestamps. Set `IDEOGRAM4_LOG_DIR` to override path.
-Generation metadata `.log` files (`result.log`) are checked into git — don't
+Generation metadata `.log` files (`examples/result.log`) are checked into git — don't
 delete them.
 
 ## Unused dependencies (do not add code that relies on these)

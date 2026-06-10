@@ -12,7 +12,7 @@ You must be logged in (huggingface-cli login) and have accepted the gated
 repo terms at https://huggingface.co/ideogram-ai/ideogram-4-fp8
 
 Usage:
-    python ideogram4_mps.py --prompt-file caption.json --out result.png
+    python ideogram4_mps.py --prompt-file caption.json --out examples/result.png
     python ideogram4_mps.py --prompt '{"high_level_description":"..."}' --out out.png
     python ideogram4_mps.py --prompt-file cap.json --resolution 512 --preset V4_TURBO_12 --out out.png
     python ideogram4_mps.py --prompt-file cap.json --width 832 --height 1248 --out out.png

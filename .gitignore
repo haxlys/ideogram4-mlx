@@ -9,10 +9,10 @@ venv/
 
 # Outputs
 *.png
-!result.png
-!result_village.png
-!result_pattern.png
-!docs/webui-screenshot.png
+!examples/result.png
+!examples/result_village.png
+!examples/result_pattern.png
+!examples/webui-screenshot.png
 outputs/
 server/output/
 server/data/
@@ -20,9 +20,9 @@ server/data/
 # Runtime logs
 logs/
 *.log
-!result.log
-!result_village.log
-!result_pattern.log
+!examples/result.log
+!examples/result_village.log
+!examples/result_pattern.log
 
 # IDE
 .vscode/
