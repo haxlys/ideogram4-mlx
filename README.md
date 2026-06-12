@@ -1,5 +1,7 @@
 # Ideogram 4 on Apple Silicon (MPS)
 
+[![Gallery](https://img.shields.io/badge/Gallery-ideogram4--gallery-blue?style=for-the-badge)](https://ideogram4-gallery-dev.haxlys.workers.dev/)
+
 Run [Ideogram 4](https://huggingface.co/ideogram-ai/ideogram-4-fp8) on a MacBook
 with MPS — no CUDA, no NVIDIA GPU needed.
 
