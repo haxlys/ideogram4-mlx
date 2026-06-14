@@ -1,73 +1,38 @@
-# React + TypeScript + Vite
+# Ideogram 4 MPS WebUI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for the local Ideogram 4 MPS app.
 
-Currently, two official plugins are available:
+The WebUI talks to the FastAPI server through Vite's `/api/*` dev proxy. By
+default the app runs at `http://localhost:5173` and proxies API calls to
+`http://localhost:8000`. `vite.config.ts` reads `IDEOGRAM4_SERVER_PORT`, and
+`../run.sh` reads both `IDEOGRAM4_SERVER_PORT` and `IDEOGRAM4_WEBUI_PORT`.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Commands
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm dev
+pnpm build
+pnpm lint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Use `pnpm`, not npm or yarn.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+For full-stack local launch, prefer:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd ..
+./run.sh
 ```
+
+## Runtime Notes
+
+- Generation is local single-slot: one active generation at a time.
+- If raw JSON is present in the caption editor, that JSON object is submitted
+  directly for generation.
+- Form state uses `useReducer` plus controlled inputs; do not add
+  `react-hook-form`/`zod` usage just because they appear in older dependency
+  history.
+- The generated `src/routeTree.gen.ts` file is maintained by TanStack Router.
+
+See `../README.md` and `../AGENTS.md` for architecture, environment variables,
+and server behavior.

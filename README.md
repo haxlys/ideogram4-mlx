@@ -95,11 +95,11 @@ hf download ideogram-ai/ideogram-4-fp8
 ## Architecture
 
 ```
-Browser (localhost:5173)
+Browser (localhost:5173 by default)
     │
-    │ HTTP (Vite dev proxy /api → localhost:8000)
+    │ HTTP (Vite dev proxy /api → localhost:8000 by default)
     ▼
-FastAPI Server (server/main.py, port 8000)
+FastAPI Server (server/main.py, port 8000 by default)
     │
     ├── model_daemon.py    ← model lifecycle, LoRA, get_pipeline()
     │     ├── LoRA apply/remove (server/apply_lora.py)
@@ -121,17 +121,17 @@ FastAPI Server (server/main.py, port 8000)
 
 ### Key ports
 
-| Port | Process | Role |
-|------|---------|------|
-| 8000 | `main.py` | FastAPI server, pipeline owner, SQLite |
-| 5173 | Vite dev server | React WebUI with proxy to :8000 |
+| Default port | Variable | Process | Role |
+|--------------|----------|---------|------|
+| 8000 | `IDEOGRAM4_SERVER_PORT` | `main.py` | FastAPI server, pipeline owner, SQLite |
+| 5173 | `IDEOGRAM4_WEBUI_PORT` | Vite dev server | React WebUI with proxy to `IDEOGRAM4_SERVER_PORT` |
 
 ### Startup flow (`./run.sh`)
 
 1. Installs Python + Node dependencies
 2. Loads `.env` from project root (if present)
-3. Kills any existing processes on ports 8000 / 5173
-4. Starts server (port 8000) and webui (port 5173) in parallel
+3. Stops existing processes on the configured server/webui ports (graceful stop first, force stop only if needed)
+4. Starts server and webui on the configured ports in parallel
 5. Cleans up all processes on SIGINT / SIGTERM / EXIT
 
 ### Manual startup (for debugging)
@@ -143,7 +143,7 @@ set -a && source .env && set +a
 python server/main.py
 
 # Terminal 2: WebUI
-cd webui && pnpm dev
+cd webui && pnpm dev -- --port "${IDEOGRAM4_WEBUI_PORT:-5173}"
 ```
 
 ![WebUI screenshot](examples/webui-screenshot.png)
@@ -153,6 +153,7 @@ cd webui && pnpm dev
 - **Model Panel** — Load / Unload controls with live status indicator (idle / loading / loaded)
 - **Quick Prompt** — Natural language → structured caption via LLM (MiniMaxAI/MiniMax-M3). Supports text-only and text+image (drag-drop, multi-image). Auto-populates all form fields including style settings.
 - **Caption Editor** — Tabbed interface: structured form (scene, style, composition) or raw JSON, with bidirectional real-time sync
+- **Raw JSON mode** — If raw JSON is present, generation submits that JSON object directly rather than rebuilding it from form fields
 - **Style Settings** — Aesthetics, lighting, medium (photograph / illustration / 3d_render / painting / graphic_design), camera or art style, color palette
 - **Composition** — Background description + dynamic element list (type: obj/text, bbox, description)
 - **LoRA** — Apply/remove LoRA weights (Lokr or standard format) with strength control. Auto-detected from `models/loras/` (gitignored).
@@ -208,7 +209,7 @@ Full format reference: https://github.com/ideogram-oss/ideogram4/blob/main/docs/
 | `POST` | `/api/model/load` | Trigger model load |
 | `POST` | `/api/model/unload` | Unload model from memory |
 | `POST` | `/api/magic-prompt` | Natural language → structured caption via LLM |
-| `POST` | `/api/generate` | Submit generation task (JSON caption + params) |
+| `POST` | `/api/generate` | Submit generation task (JSON caption + params). Local single-generation slot; returns `409` if another generation is running |
 | `GET` | `/api/status/{task_id}` | Poll generation progress and result |
 | `POST` | `/api/verify` | Validate a JSON caption without generating |
 | `GET` | `/api/lora/status` | List available LoRAs + currently applied |
@@ -221,6 +222,15 @@ Full format reference: https://github.com/ideogram-oss/ideogram4/blob/main/docs/
 | `DELETE` | `/api/prompts/{id}` | Delete a saved prompt |
 | `GET` | `/api/form` | Load last saved form state |
 | `POST` | `/api/form` | Save form state |
+
+### Runtime concurrency
+
+This is a local single-user app. Model load, unload, LoRA apply/remove, and
+generation share one in-process pipeline and are protected by a pipeline
+operation lock. Generation runs in a daemon thread, but only one generation is
+accepted at a time; extra `/api/generate` requests return `409` instead of
+queuing unbounded work. Completed task status entries are kept briefly for
+polling and cleaned up after about one hour.
 
 ## Memory & speed
 
@@ -319,6 +329,7 @@ All settings are read from environment variables at import time by `server/confi
 | `IDEOGRAM4_MAGIC_PROMPT_TEMPERATURE` | `1.0` | LLM temperature |
 | `IDEOGRAM4_SERVER_HOST` | `0.0.0.0` | FastAPI bind host |
 | `IDEOGRAM4_SERVER_PORT` | `8000` | FastAPI listen port |
+| `IDEOGRAM4_WEBUI_PORT` | `5173` | Vite WebUI dev server port used by `run.sh` |
 | `IDEOGRAM4_SERVER_LOG_LEVEL` | `info` | Uvicorn log level |
 | `IDEOGRAM4_CORS_ORIGINS` | `*` | CORS allow-origins |
 | `IDEOGRAM4_MODEL_REPO` | `ideogram-ai/ideogram-4-fp8` | HuggingFace model repo |
