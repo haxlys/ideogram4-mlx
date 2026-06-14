@@ -16,6 +16,7 @@ import torch
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from config import (
@@ -44,8 +45,26 @@ app.add_middleware(
 )
 
 _tasks: dict = {}
-_lock = threading.Lock()
+_tasks_lock = threading.Lock()
 _pipeline_ops_lock = threading.Lock()
+_generation_lock = threading.Lock()
+_TASK_TTL_SECONDS = 60 * 60
+
+
+def _load_model_locked():
+    with _pipeline_ops_lock:
+        return handle_load()
+
+
+def _cleanup_tasks_locked():
+    cutoff = time.time() - _TASK_TTL_SECONDS
+    for task_id, task in list(_tasks.items()):
+        if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
+            del _tasks[task_id]
+
+
+def _busy_response(msg: str):
+    return JSONResponse(status_code=409, content={"error": msg})
 
 
 @app.on_event("startup")
@@ -53,7 +72,7 @@ def startup():
     init_db()
     logger.info("FastAPI server started")
     if is_mps_available():
-        threading.Thread(target=handle_load, daemon=True).start()
+        threading.Thread(target=_load_model_locked, daemon=True).start()
         logger.info("Auto-loading model on startup")
 
 
@@ -78,14 +97,20 @@ def api_load_model():
     logger.info("Model load requested via API")
     if not is_mps_available():
         return {"ok": False, "msg": "MPS not available. Requires Apple Silicon."}
-    threading.Thread(target=handle_load, daemon=True).start()
+    if _pipeline_ops_lock.locked():
+        return _busy_response("A model operation is already running.")
+    threading.Thread(target=_load_model_locked, daemon=True).start()
     return {"ok": True, "msg": "Load started."}
 
 
 @app.post("/api/model/unload")
 def api_unload_model():
-    with _pipeline_ops_lock:
+    if not _pipeline_ops_lock.acquire(blocking=False):
+        return _busy_response("A model operation is already running.")
+    try:
         return handle_unload()
+    finally:
+        _pipeline_ops_lock.release()
 
 
 # ── LoRA endpoints ───────────────────────────────────────────────
@@ -101,14 +126,22 @@ def api_apply_lora(req: dict):
     strength = float(req.get("strength", DEFAULT_LORA_STRENGTH))
     if not name:
         return {"ok": False, "msg": "Missing LoRA name."}
-    with _pipeline_ops_lock:
+    if not _pipeline_ops_lock.acquire(blocking=False):
+        return _busy_response("A model operation is already running.")
+    try:
         return apply_lora(name, strength)
+    finally:
+        _pipeline_ops_lock.release()
 
 
 @app.post("/api/lora/remove")
 def api_remove_lora():
-    with _pipeline_ops_lock:
+    if not _pipeline_ops_lock.acquire(blocking=False):
+        return _busy_response("A model operation is already running.")
+    try:
         return remove_lora()
+    finally:
+        _pipeline_ops_lock.release()
 
 
 # ── Validation / Magic prompt ─────────────────────────────────────
@@ -290,6 +323,9 @@ def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: 
         _tasks[task_id]["state"] = "done"
         _tasks[task_id]["msg"] = f"Error: {e}"
         _tasks[task_id]["image"] = None
+    finally:
+        _tasks[task_id]["done_at"] = time.time()
+        _generation_lock.release()
 
 
 @app.post("/api/generate")
@@ -297,11 +333,22 @@ def api_generate(req: GenerateRequest):
     logger.info("Generate request: %dx%d, %s, seed=%d, prompt_id=%s",
                  req.width, req.height, req.preset, req.seed, req.prompt_id)
 
+    with _tasks_lock:
+        _cleanup_tasks_locked()
+
+    if not _generation_lock.acquire(blocking=False):
+        return JSONResponse(
+            status_code=409,
+            content={"error": "A generation is already running. Wait for it to finish before starting another."},
+        )
+
     task_id = uuid.uuid4().hex
-    _tasks[task_id] = {
-        "state": "running", "msg": "Queued...", "image": None,
-        "progress": 0, "total_steps": 0, "prompt_id": req.prompt_id,
-    }
+    with _tasks_lock:
+        _tasks[task_id] = {
+            "state": "running", "msg": "Queued...", "image": None,
+            "progress": 0, "total_steps": 0, "prompt_id": req.prompt_id,
+            "created_at": time.time(),
+        }
     logger.info("Generation task %s started: %dx%d, %s, seed=%d",
                  task_id, req.width, req.height, req.preset, req.seed)
 
@@ -310,13 +357,21 @@ def api_generate(req: GenerateRequest):
         args=(task_id, req.caption, req.width, req.height, req.preset, req.seed, req.format),
         daemon=True,
     )
-    t.start()
+    try:
+        t.start()
+    except Exception:
+        _generation_lock.release()
+        with _tasks_lock:
+            _tasks.pop(task_id, None)
+        raise
     return {"task_id": task_id}
 
 
 @app.get("/api/status/{task_id}")
 def api_task_status(task_id: str):
-    task = _tasks.get(task_id)
+    with _tasks_lock:
+        _cleanup_tasks_locked()
+        task = _tasks.get(task_id)
     if task is None:
         return {"state": "done", "msg": "Task not found.", "image": None, "progress": 0, "total_steps": 0}
 
