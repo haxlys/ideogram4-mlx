@@ -29,7 +29,7 @@ from ideogram4 import Ideogram4Config
 from ideogram4.scheduler import LogitNormalSchedule
 from transformers import AutoTokenizer, AutoConfig, AutoModel
 from ideogram4.pipeline_ideogram4 import _load_autoencoder
-from huggingface_hub import snapshot_download
+from huggingface_hub import hf_hub_download, snapshot_download
 
 
 FP8_DTYPE = torch.float8_e4m3fn
@@ -248,7 +248,60 @@ def handle_status():
 
 _lora_applied: str | None = None
 _lora_strength: float = DEFAULT_LORA_STRENGTH
+_lora_stack: list[dict] = []
 _original_states: dict | None = None
+
+
+LORA_PRESETS = [
+    {
+        "id": "realism-v1",
+        "label": "Realism V1",
+        "repo": "RazzzHF/Realism_Engine_Ideogram_4",
+        "filename": "Realism_Engine_Ideogram4_V1.safetensors",
+        "local_name": "Realism_Engine_V1.safetensors",
+        "default_strength": 0.6,
+    },
+    {
+        "id": "realism-v2",
+        "label": "Realism V2",
+        "repo": "RazzzHF/Realism_Engine_Ideogram_4",
+        "filename": "Realism_Engine_Ideogram_V2.safetensors",
+        "local_name": "Realism_Engine_Ideogram_V2.safetensors",
+        "default_strength": 0.6,
+    },
+    {
+        "id": "realism-v3",
+        "label": "Realism V3",
+        "repo": "RazzzHF/Realism_Engine_Ideogram_4",
+        "filename": "Realism_Engine_Ideogram_V3.safetensors",
+        "local_name": "Realism_Engine_Ideogram_V3.safetensors",
+        "default_strength": 0.6,
+    },
+    {
+        "id": "zjourney-v1",
+        "label": "zjourney V1",
+        "repo": "tsolful/zjourney-Ideogram-4-Fantasy-Realism-Refiner",
+        "filename": "zjourneyv1.safetensors",
+        "local_name": "zjourneyv1.safetensors",
+        "default_strength": 0.5,
+    },
+    {
+        "id": "zjourney-v2",
+        "label": "zjourney V2",
+        "repo": "tsolful/zjourney-Ideogram-4-Fantasy-Realism-Refiner",
+        "filename": "zjourneyv2.safetensors",
+        "local_name": "zjourneyv2.safetensors",
+        "default_strength": 0.55,
+    },
+    {
+        "id": "zjourney-stack",
+        "label": "zjourney V1+V2",
+        "loras": [
+            {"local_name": "zjourneyv1.safetensors", "default_strength": 0.35},
+            {"local_name": "zjourneyv2.safetensors", "default_strength": 0.45},
+        ],
+    },
+]
 
 
 def _clone_state_dict_to_cpu(state_dict: dict) -> dict:
@@ -291,32 +344,84 @@ def list_loras() -> list[dict]:
     return result
 
 
-def apply_lora(name: str, strength: float = DEFAULT_LORA_STRENGTH) -> dict:
-    global _lora_applied, _lora_strength, _original_states
+def _preset_loras(preset: dict) -> list[dict]:
+    if "loras" in preset:
+        resolved = []
+        by_local_name = {item["local_name"]: item for item in LORA_PRESETS if "local_name" in item}
+        for item in preset["loras"]:
+            base = by_local_name.get(item["local_name"], {})
+            resolved.append({**base, **item})
+        return resolved
+    return [preset]
 
-    pipe = get_pipeline()
-    if pipe is None:
-        return {"ok": False, "msg": "Model not loaded."}
 
-    lora_path = LORA_DIR / name
-    if not lora_path.is_file():
-        return {"ok": False, "msg": f"LoRA not found: {name}"}
+def get_lora_presets() -> list[dict]:
+    available = {lora["name"]: lora for lora in list_loras()}
+    result = []
+    for preset in LORA_PRESETS:
+        loras = []
+        for item in _preset_loras(preset):
+            local_name = item["local_name"]
+            installed = local_name in available
+            loras.append({
+                "name": local_name,
+                "repo": item.get("repo"),
+                "filename": item.get("filename"),
+                "strength": item["default_strength"],
+                "installed": installed,
+                "format": available[local_name]["format"] if installed else None,
+                "size_mb": available[local_name]["size_mb"] if installed else None,
+            })
+        result.append({
+            "id": preset["id"],
+            "label": preset["label"],
+            "installed": all(lora["installed"] for lora in loras),
+            "loras": loras,
+        })
+    return result
 
-    try:
-        fmt = _detect_lora_format(str(lora_path))
-    except ValueError as e:
-        return {"ok": False, "msg": str(e)}
 
+def get_lora_preset(preset_id: str) -> dict | None:
+    for preset in LORA_PRESETS:
+        if preset["id"] == preset_id:
+            return preset
+    return None
+
+
+def download_lora_preset(preset_id: str) -> list[dict]:
+    preset = get_lora_preset(preset_id)
+    if preset is None:
+        raise ValueError(f"Unknown LoRA preset: {preset_id}")
+
+    LORA_DIR.mkdir(parents=True, exist_ok=True)
+    downloaded = []
+
+    for item in _preset_loras(preset):
+        local_name = item["local_name"]
+        target = LORA_DIR / local_name
+        if target.is_file():
+            downloaded.append({"name": local_name, "status": "already_installed"})
+            continue
+
+        repo = item.get("repo")
+        filename = item.get("filename")
+        if not repo or not filename:
+            raise ValueError(f"LoRA preset cannot be downloaded: {local_name}")
+
+        logger.info("Downloading LoRA %s from %s:%s", local_name, repo, filename)
+        downloaded_path = Path(hf_hub_download(repo_id=repo, filename=filename, local_dir=str(LORA_DIR)))
+        if downloaded_path.name != local_name:
+            downloaded_path.replace(target)
+
+        _detect_lora_format(str(target))
+        downloaded.append({"name": local_name, "status": "downloaded"})
+
+    return downloaded
+
+
+def _merge_lora_into_pipe(pipe, lora_path: Path, fmt: str, strength: float):
     import importlib
     apply_mod = importlib.import_module("apply_lora")
-
-    if _original_states is None:
-        _original_states = {
-            "cond": _clone_state_dict_to_cpu(pipe.conditional_transformer.state_dict()),
-            "uncond": _clone_state_dict_to_cpu(pipe.unconditional_transformer.state_dict()),
-        }
-    else:
-        _restore_original_lora_targets(pipe)
 
     if fmt == "lokr":
         sd = pipe.conditional_transformer.state_dict()
@@ -333,15 +438,63 @@ def apply_lora(name: str, strength: float = DEFAULT_LORA_STRENGTH) -> dict:
         apply_mod.apply_std_lora(sd2, str(lora_path), strength=strength)
         pipe.unconditional_transformer.load_state_dict(sd2, strict=False)
 
-    _lora_applied = name
-    _lora_strength = strength
-    logger.info("LoRA applied: %s (format=%s, strength=%.2f)", name, fmt, strength)
+
+def apply_loras(loras: list[dict]) -> dict:
+    global _lora_applied, _lora_strength, _lora_stack, _original_states
+
+    pipe = get_pipeline()
+    if pipe is None:
+        return {"ok": False, "msg": "Model not loaded."}
+
+    requested = []
+    for item in loras:
+        name = str(item.get("name", "")).strip()
+        strength = float(item.get("strength", DEFAULT_LORA_STRENGTH))
+        if not name:
+            return {"ok": False, "msg": "Missing LoRA name."}
+
+        lora_path = LORA_DIR / name
+        if not lora_path.is_file():
+            return {"ok": False, "msg": f"LoRA not found: {name}"}
+
+        try:
+            fmt = _detect_lora_format(str(lora_path))
+        except ValueError as e:
+            return {"ok": False, "msg": str(e)}
+
+        requested.append({"name": name, "path": lora_path, "format": fmt, "strength": strength})
+
+    if not requested:
+        return {"ok": False, "msg": "No LoRAs requested."}
+
+    if _original_states is None:
+        _original_states = {
+            "cond": _clone_state_dict_to_cpu(pipe.conditional_transformer.state_dict()),
+            "uncond": _clone_state_dict_to_cpu(pipe.unconditional_transformer.state_dict()),
+        }
+    else:
+        _restore_original_lora_targets(pipe)
+
+    for item in requested:
+        _merge_lora_into_pipe(pipe, item["path"], item["format"], item["strength"])
+
+    _lora_stack = [
+        {"name": item["name"], "strength": item["strength"], "format": item["format"]}
+        for item in requested
+    ]
+    _lora_applied = " + ".join(item["name"] for item in _lora_stack)
+    _lora_strength = _lora_stack[0]["strength"] if len(_lora_stack) == 1 else 0.0
+    logger.info("LoRA stack applied: %s", _lora_stack)
     _warmup_pipeline(pipe)
-    return {"ok": True, "msg": f"LoRA {name} applied (strength={strength}, format={fmt})"}
+    return {"ok": True, "msg": f"LoRA stack applied: {_lora_applied}", "applied_loras": _lora_stack}
+
+
+def apply_lora(name: str, strength: float = DEFAULT_LORA_STRENGTH) -> dict:
+    return apply_loras([{"name": name, "strength": strength}])
 
 
 def remove_lora() -> dict:
-    global _lora_applied, _original_states
+    global _lora_applied, _lora_stack, _original_states
 
     pipe = get_pipeline()
     if pipe is None:
@@ -353,6 +506,7 @@ def remove_lora() -> dict:
 
     _original_states = None
     _lora_applied = None
+    _lora_stack = []
     logger.info("LoRA removed, original weights restored")
     _warmup_pipeline(pipe)
     return {"ok": True, "msg": "LoRA removed, original weights restored."}
@@ -362,5 +516,6 @@ def get_lora_status() -> dict:
     return {
         "applied": _lora_applied,
         "strength": _lora_strength,
+        "applied_loras": _lora_stack,
         "available": list_loras(),
     }

@@ -29,7 +29,8 @@ from db import init_db, get_images, delete_image, get_prompts, save_prompt, dele
 from logger import get_logger, get_log_file
 from model_daemon import (
     handle_load, handle_unload, handle_status, get_pipeline, is_mps_available,
-    list_loras, apply_lora, remove_lora, get_lora_status,
+    list_loras, apply_lora, apply_loras, remove_lora, get_lora_status,
+    get_lora_presets, download_lora_preset,
 )
 
 logger = get_logger("server")
@@ -46,6 +47,8 @@ app.add_middleware(
 
 _tasks: dict = {}
 _tasks_lock = threading.Lock()
+_lora_download_tasks: dict = {}
+_lora_download_tasks_lock = threading.Lock()
 _pipeline_ops_lock = threading.Lock()
 _generation_lock = threading.Lock()
 _TASK_TTL_SECONDS = 60 * 60
@@ -61,6 +64,13 @@ def _cleanup_tasks_locked():
     for task_id, task in list(_tasks.items()):
         if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
             del _tasks[task_id]
+
+
+def _cleanup_lora_download_tasks_locked():
+    cutoff = time.time() - _TASK_TTL_SECONDS
+    for task_id, task in list(_lora_download_tasks.items()):
+        if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
+            del _lora_download_tasks[task_id]
 
 
 def _busy_response(msg: str):
@@ -120,15 +130,81 @@ def api_lora_status():
     return get_lora_status()
 
 
+@app.get("/api/lora/presets")
+def api_lora_presets():
+    return {"presets": get_lora_presets()}
+
+
+def _run_lora_download(task_id: str, preset_id: str):
+    try:
+        with _lora_download_tasks_lock:
+            _lora_download_tasks[task_id]["msg"] = "Downloading LoRA files..."
+        files = download_lora_preset(preset_id)
+        with _lora_download_tasks_lock:
+            _lora_download_tasks[task_id].update({
+                "state": "done",
+                "msg": "Download complete.",
+                "files": files,
+                "done_at": time.time(),
+            })
+    except Exception as e:
+        logger.exception("LoRA download task %s failed", task_id)
+        with _lora_download_tasks_lock:
+            _lora_download_tasks[task_id].update({
+                "state": "done",
+                "msg": f"Error: {e}",
+                "error": str(e),
+                "done_at": time.time(),
+            })
+
+
+@app.post("/api/lora/download")
+def api_download_lora(req: dict):
+    preset_id = str(req.get("preset_id", "")).strip()
+    if not preset_id:
+        return {"ok": False, "msg": "Missing LoRA preset id."}
+
+    task_id = uuid.uuid4().hex
+    with _lora_download_tasks_lock:
+        _cleanup_lora_download_tasks_locked()
+        _lora_download_tasks[task_id] = {
+            "state": "running",
+            "msg": "Starting download...",
+            "files": [],
+            "created_at": time.time(),
+        }
+
+    threading.Thread(target=_run_lora_download, args=(task_id, preset_id), daemon=True).start()
+    return {"ok": True, "task_id": task_id}
+
+
+@app.get("/api/lora/download/{task_id}")
+def api_lora_download_status(task_id: str):
+    with _lora_download_tasks_lock:
+        _cleanup_lora_download_tasks_locked()
+        task = _lora_download_tasks.get(task_id)
+        if task is None:
+            return {"state": "done", "msg": "Task not found.", "files": []}
+        return {
+            "state": task.get("state", "done"),
+            "msg": task.get("msg", ""),
+            "files": task.get("files", []),
+            "error": task.get("error"),
+        }
+
+
 @app.post("/api/lora/apply")
 def api_apply_lora(req: dict):
+    requested_loras = req.get("loras")
     name = req.get("name", "")
     strength = float(req.get("strength", DEFAULT_LORA_STRENGTH))
-    if not name:
+    if not requested_loras and not name:
         return {"ok": False, "msg": "Missing LoRA name."}
     if not _pipeline_ops_lock.acquire(blocking=False):
         return _busy_response("A model operation is already running.")
     try:
+        if requested_loras:
+            return apply_loras(requested_loras)
         return apply_lora(name, strength)
     finally:
         _pipeline_ops_lock.release()
