@@ -7,13 +7,10 @@ import binascii
 import json
 import logging
 import os
-import resource
 import threading
 import time
 import uuid
-from io import BytesIO
 
-import torch
 import requests
 from urllib.parse import urlparse
 
@@ -32,18 +29,14 @@ from config import (
     MIN_IMAGE_SIZE, MAX_IMAGE_SIZE, IMAGE_SIZE_MULTIPLE, MAX_CAPTION_JSON_BYTES,
     MAGIC_PROMPT_MAX_CHARS, MAGIC_PROMPT_MAX_IMAGES, MAGIC_PROMPT_MAX_IMAGE_BYTES,
     MAX_FORM_JSON_BYTES,
+    MODEL_DAEMON_URL, MODEL_DAEMON_TIMEOUT,
 )
 from db import (
     init_db, get_images, get_image, delete_image, get_prompts, save_prompt,
     delete_prompt, get_last_form, save_last_form, add_image, OUTPUT_DIR,
-    get_prompt, resolve_image_path,
+    get_prompt, resolve_image_path, get_image_by_file_path,
 )
 from logger import get_logger, get_log_file
-from model_daemon import (
-    handle_load, handle_unload, handle_status, get_pipeline, is_mps_available,
-    list_loras, apply_lora, apply_loras, remove_lora, get_lora_status,
-    get_lora_presets, download_lora_preset,
-)
 
 logger = get_logger("server")
 
@@ -181,13 +174,87 @@ def _busy_response(msg: str):
     return JSONResponse(status_code=409, content={"error": msg})
 
 
+def _daemon_url(path: str) -> str:
+    return f"{MODEL_DAEMON_URL}{path if path.startswith('/') else '/' + path}"
+
+
+def _daemon_json(method: str, path: str, *, json_body: object | None = None, timeout: float | None = None):
+    try:
+        resp = requests.request(
+            method,
+            _daemon_url(path),
+            json=json_body,
+            timeout=timeout or MODEL_DAEMON_TIMEOUT,
+        )
+    except requests.RequestException as e:
+        logger.warning("Model daemon request failed: %s %s: %s", method, path, e)
+        return JSONResponse(status_code=503, content={"error": f"Model daemon unreachable: {e}"})
+
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {"error": resp.text or resp.reason}
+
+    if resp.status_code >= 400:
+        return JSONResponse(status_code=resp.status_code, content=data)
+    return data
+
+
+def _task_image_from_row(row: dict, hld: str = "") -> dict:
+    return {
+        "id": row["id"],
+        "url": f"/api/images/{row['id']}/file",
+        "hld": row.get("hld") or hld,
+        "time": time.strftime("%H:%M:%S"),
+        "prompt_id": row.get("prompt_id"),
+    }
+
+
+def _persist_daemon_artifact(task_id: str, meta: dict) -> dict:
+    fmt = str(meta.get("format") or DEFAULT_SERVER_FORMAT).lower()
+    if fmt not in ALLOWED_FORMATS:
+        fmt = DEFAULT_SERVER_FORMAT
+    filename = f"{task_id}.{fmt}"
+
+    existing = get_image_by_file_path(filename)
+    if existing is not None:
+        return _task_image_from_row(existing, str(meta.get("hld", "")))
+
+    try:
+        resp = requests.get(_daemon_url(f"/artifact/{task_id}"), timeout=MODEL_DAEMON_TIMEOUT)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Model daemon artifact fetch failed: {e}") from e
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Model daemon artifact fetch failed: HTTP {resp.status_code}")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    filepath = OUTPUT_DIR / filename
+    filepath.write_bytes(resp.content)
+
+    image_id = add_image(
+        str(meta.get("hld", "")),
+        int(meta.get("width", 1024)),
+        int(meta.get("height", 1024)),
+        str(meta.get("preset", DEFAULT_PRESET)),
+        int(meta.get("seed", 0)),
+        filename,
+        meta.get("prompt_id"),
+        meta.get("lora_name"),
+        meta.get("lora_strength"),
+    )
+    row = get_image(image_id) or {
+        "id": image_id,
+        "hld": str(meta.get("hld", "")),
+        "prompt_id": meta.get("prompt_id"),
+    }
+    logger.info("Persisted daemon artifact %s as image id=%s", filename, image_id)
+    return _task_image_from_row(row, str(meta.get("hld", "")))
+
+
 @app.on_event("startup")
 def startup():
     init_db()
     logger.info("FastAPI server started")
-    if is_mps_available():
-        threading.Thread(target=_load_model_locked, daemon=True).start()
-        logger.info("Auto-loading model on startup")
 
 
 @app.middleware("http")

@@ -17,6 +17,14 @@ WEBUI_PORT = int(os.environ.get("IDEOGRAM4_WEBUI_PORT", "5173"))
 SERVER_HOST = os.environ.get("IDEOGRAM4_SERVER_HOST", "127.0.0.1")
 SERVER_PORT = int(os.environ.get("IDEOGRAM4_SERVER_PORT", "8000"))
 SERVER_LOG_LEVEL = os.environ.get("IDEOGRAM4_SERVER_LOG_LEVEL", "info")
+MODEL_DAEMON_HOST = os.environ.get("IDEOGRAM4_MODEL_DAEMON_HOST", "127.0.0.1")
+MODEL_DAEMON_PORT = int(os.environ.get("IDEOGRAM4_MODEL_DAEMON_PORT", "8001"))
+MODEL_DAEMON_LOG_LEVEL = os.environ.get("IDEOGRAM4_MODEL_DAEMON_LOG_LEVEL", SERVER_LOG_LEVEL)
+MODEL_DAEMON_URL = os.environ.get(
+    "IDEOGRAM4_MODEL_DAEMON_URL",
+    f"http://{MODEL_DAEMON_HOST}:{MODEL_DAEMON_PORT}",
+).rstrip("/")
+MODEL_DAEMON_TIMEOUT = float(os.environ.get("IDEOGRAM4_MODEL_DAEMON_TIMEOUT", "30.0"))
 CORS_ORIGINS = os.environ.get(
     "IDEOGRAM4_CORS_ORIGINS",
     f"http://127.0.0.1:{WEBUI_PORT},http://localhost:{WEBUI_PORT}",
@@ -27,12 +35,18 @@ CORS_ALLOW_CREDENTIALS = _truthy_env("IDEOGRAM4_CORS_ALLOW_CREDENTIALS")
 MODEL_REPO = os.environ.get("IDEOGRAM4_MODEL_REPO", "ideogram-ai/ideogram-4-fp8")
 MODEL_REVISION = os.environ.get("IDEOGRAM4_MODEL_REVISION", "").strip() or None
 MODEL_DEVICE = "mps"
+MODEL_DAEMON_AUTOLOAD = _truthy_env("IDEOGRAM4_MODEL_DAEMON_AUTOLOAD", True)
 
 # ── Paths ─────────────────────────────────────────────────────────
-LOG_DIR = Path(os.environ.get("IDEOGRAM4_LOG_DIR", str(ROOT / "logs")))
-DB_PATH = Path(os.environ.get("IDEOGRAM4_DB_PATH", str(ROOT / "server" / "data" / "ideogram4.db")))
-OUTPUT_DIR = Path(os.environ.get("IDEOGRAM4_OUTPUT_DIR", str(ROOT / "server" / "output")))
-LORA_DIR = Path(os.environ.get("IDEOGRAM4_LORA_DIR", str(ROOT / "models" / "loras")))
+def _resolve_path(value: str, default: Path) -> Path:
+    path = Path(value) if value else default
+    return path if path.is_absolute() else (ROOT / path)
+
+
+LOG_DIR = _resolve_path(os.environ.get("IDEOGRAM4_LOG_DIR", ""), ROOT / "logs")
+DB_PATH = _resolve_path(os.environ.get("IDEOGRAM4_DB_PATH", ""), ROOT / "server" / "data" / "ideogram4.db")
+OUTPUT_DIR = _resolve_path(os.environ.get("IDEOGRAM4_OUTPUT_DIR", ""), ROOT / "server" / "output")
+LORA_DIR = _resolve_path(os.environ.get("IDEOGRAM4_LORA_DIR", ""), ROOT / "models" / "loras")
 
 # ── Generation defaults ───────────────────────────────────────────
 DEFAULT_PRESET = os.environ.get("IDEOGRAM4_DEFAULT_PRESET", "V4_QUALITY_48")

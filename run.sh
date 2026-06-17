@@ -13,6 +13,7 @@ if [ -f "$ROOT/.env" ]; then
 fi
 
 SERVER_PORT="${IDEOGRAM4_SERVER_PORT:-8000}"
+MODEL_DAEMON_PORT="${IDEOGRAM4_MODEL_DAEMON_PORT:-8001}"
 WEBUI_PORT="${IDEOGRAM4_WEBUI_PORT:-5173}"
 WEBUI_HOST="${IDEOGRAM4_WEBUI_HOST:-127.0.0.1}"
 MAGIC_LLM_PID=""
@@ -58,12 +59,12 @@ stop_port() {
 cleanup() {
   echo ""
   echo "Shutting down..."
-  for pid in "${SERVER_PID:-}" "${WEBUI_PID:-}" "${MAGIC_LLM_PID:-}"; do
+  for pid in "${SERVER_PID:-}" "${MODEL_DAEMON_PID:-}" "${WEBUI_PID:-}" "${MAGIC_LLM_PID:-}"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true
     fi
   done
-  for pid in "${SERVER_PID:-}" "${WEBUI_PID:-}" "${MAGIC_LLM_PID:-}"; do
+  for pid in "${SERVER_PID:-}" "${MODEL_DAEMON_PID:-}" "${WEBUI_PID:-}" "${MAGIC_LLM_PID:-}"; do
     if [ -n "$pid" ]; then
       wait "$pid" 2>/dev/null || true
     fi
@@ -172,14 +173,21 @@ echo "Installing webui dependencies..."
 (cd "$ROOT/webui" && $PNPM install --silent)
 
 stop_port "$SERVER_PORT" "server"
+stop_port "$MODEL_DAEMON_PORT" "model daemon"
 stop_port "$WEBUI_PORT" "webui"
 start_magic_llm
 
 echo ""
-echo "Starting server (port $SERVER_PORT) and webui (port $WEBUI_PORT)..."
-echo "  API: http://localhost:$SERVER_PORT"
-echo "  Web: http://localhost:$WEBUI_PORT"
+echo "Starting model daemon (port $MODEL_DAEMON_PORT), server (port $SERVER_PORT), and webui (port $WEBUI_PORT)..."
+echo "  Model: http://localhost:$MODEL_DAEMON_PORT"
+echo "  API:   http://localhost:$SERVER_PORT"
+echo "  Web:   http://localhost:$WEBUI_PORT"
 echo ""
+
+$VENV_PYTHON "$ROOT/server/model_daemon.py" &
+MODEL_DAEMON_PID=$!
+
+wait_for_http "http://127.0.0.1:${MODEL_DAEMON_PORT}/health" "Model daemon" 60
 
 $VENV_PYTHON "$ROOT/server/main.py" &
 SERVER_PID=$!

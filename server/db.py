@@ -29,9 +29,20 @@ def normalize_image_path_for_storage(file_path: str | Path) -> str:
         resolved = path.resolve()
         if resolved != root and root not in resolved.parents:
             raise ValueError("Image path must be inside IDEOGRAM4_OUTPUT_DIR.")
-        path = resolved.relative_to(root)
+        path = Path(resolved.name)
 
-    if len(path.parts) != 1 or path.name in {"", ".", ".."} or path.suffix.lower() not in IMAGE_SUFFIXES:
+    if len(path.parts) > 1:
+        basename = Path(path.name)
+        if (root / basename).is_file():
+            path = basename
+        else:
+            nested = (root / path).resolve()
+            if nested.is_file() and root in nested.parents:
+                path = Path(nested.name)
+            else:
+                raise ValueError("Image path must be a generated image filename.")
+
+    if path.name in {"", ".", ".."} or path.suffix.lower() not in IMAGE_SUFFIXES:
         raise ValueError("Image path must be a generated image filename.")
     return path.name
 
@@ -62,6 +73,26 @@ def _public_image_row(row: sqlite3.Row) -> dict:
     else:
         data["file_path"] = ""
     return data
+
+
+def _migrate_legacy_image_paths() -> int:
+    conn = _conn()
+    rows = conn.execute("SELECT id, file_path FROM images WHERE instr(file_path, '/') > 0").fetchall()
+    updated = 0
+    for row in rows:
+        try:
+            normalized = normalize_image_path_for_storage(row["file_path"])
+        except ValueError:
+            continue
+        if normalized != row["file_path"]:
+            conn.execute(
+                "UPDATE images SET file_path = ? WHERE id = ?",
+                (normalized, row["id"]),
+            )
+            updated += 1
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def init_db(db_path: str | None = None, output_dir: str | None = None):
@@ -115,6 +146,7 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
         pass
     conn.commit()
     conn.close()
+    _migrate_legacy_image_paths()
 
 
 def add_image(hld: str, width: int, height: int, preset: str, seed: int, file_path: str, prompt_id: int | None = None, lora_name: str | None = None, lora_strength: float | None = None) -> int:
@@ -147,6 +179,14 @@ def get_images(limit: int = _CFG_QUERY_LIMIT, prompt_id: int | None = None) -> l
 def get_image(image_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
+    conn.close()
+    return _public_image_row(row) if row else None
+
+
+def get_image_by_file_path(file_path: str | Path) -> dict | None:
+    stored_path = normalize_image_path_for_storage(file_path)
+    conn = _conn()
+    row = conn.execute("SELECT * FROM images WHERE file_path = ?", (stored_path,)).fetchone()
     conn.close()
     return _public_image_row(row) if row else None
 
