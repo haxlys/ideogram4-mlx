@@ -309,6 +309,15 @@ LORA_PRESETS = [
         "default_strength": 0.6,
     },
     {
+        "id": "realism-v4",
+        "label": "Realism V4",
+        "repo": "RazzzHF/Realism_Engine_Ideogram_4",
+        "revision": "94305803d895f5ce4a150f45836d71798572f309",
+        "filename": "Realism_Engine_Ideogram_V4.safetensors",
+        "local_name": "Realism_Engine_Ideogram_V4.safetensors",
+        "default_strength": 0.6,
+    },
+    {
         "id": "zjourney-v1",
         "label": "zjourney V1",
         "repo": "tsolful/zjourney-Ideogram-4-Fantasy-Realism-Refiner",

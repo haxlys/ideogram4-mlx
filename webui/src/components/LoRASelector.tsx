@@ -36,7 +36,7 @@ interface LoraPreset {
 interface LoraOperationUiState {
   msg: string;
   phase: string;
-  progress: number;
+  progress: number | null;
 }
 interface LoraUiState {
   presets: LoraPreset[];
@@ -111,14 +111,19 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function waitForDownload(taskId: string): Promise<string> {
+async function waitForDownload(taskId: string, onUpdate: (operation: LoraOperationUiState) => void): Promise<string> {
   const status = await getLoraDownloadStatus(taskId);
+  onUpdate({
+    msg: status.msg || "Downloading LoRA files...",
+    phase: status.state === "done" ? "done" : "download",
+    progress: status.state === "done" ? 100 : null,
+  });
   if (status.state === "done") {
     if (status.error) throw new Error(status.error);
     return status.msg;
   }
   await delay(1500);
-  return waitForDownload(taskId);
+  return waitForDownload(taskId, onUpdate);
 }
 
 export function LoRASelector() {
@@ -163,7 +168,7 @@ export function LoRASelector() {
       operation: {
         msg: status.msg,
         phase: status.phase,
-        progress: status.progress,
+        progress: status.progress > 0 ? status.progress : null,
       },
     });
     if (status.state === "done") {
@@ -180,7 +185,7 @@ export function LoRASelector() {
       type: "SET_LOADING",
       loading: true,
       loadingPreset: preset.id,
-      loraOperation: { msg: "Queued LoRA apply...", phase: "queued", progress: 0 },
+      loraOperation: { msg: "Queued LoRA apply...", phase: "queued", progress: null },
     });
     try {
       const loras = preset.loras.map((lora) => ({ name: lora.name, strength: lora.strength }));
@@ -201,19 +206,26 @@ export function LoRASelector() {
 
   const handleDownloadPreset = async (preset: LoraPreset) => {
     dispatchLora({ type: "SET_DOWNLOADING", presetId: preset.id });
+    dispatchLora({
+      type: "SET_OPERATION",
+      operation: { msg: `Downloading ${preset.label}...`, phase: "download", progress: null },
+    });
     try {
       const res = await downloadLoraPreset(preset.id);
       if (!res.ok || !res.task_id) {
         toast.error(res.msg ?? "Failed to start download.");
         return;
       }
-      const msg = await waitForDownload(res.task_id);
+      const msg = await waitForDownload(res.task_id, (operation) => {
+        dispatchLora({ type: "SET_OPERATION", operation });
+      });
       await refresh();
       toast.success(msg);
     } catch (e) {
       toast.error(String(e));
     } finally {
       dispatchLora({ type: "SET_DOWNLOADING", presetId: null });
+      dispatchLora({ type: "SET_OPERATION", operation: null });
     }
   };
 
@@ -222,7 +234,7 @@ export function LoRASelector() {
       type: "SET_LOADING",
       loading: true,
       loadingPreset: null,
-      loraOperation: { msg: "Queued LoRA remove...", phase: "queued", progress: 0 },
+      loraOperation: { msg: "Queued LoRA remove...", phase: "queued", progress: null },
     });
     try {
       const res = await removeLoraApi();
@@ -312,7 +324,7 @@ export function LoRASelector() {
           <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
             <Spinner className="size-3 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{loraOperation.msg}</span>
-            <span className="shrink-0 tabular-nums">{loraOperation.progress}%</span>
+            <span className="shrink-0 tabular-nums">{loraOperation.progress == null ? "..." : `${loraOperation.progress}%`}</span>
           </div>
           <Progress value={loraOperation.progress} className="h-1" />
         </div>

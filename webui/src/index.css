@@ -66,6 +66,16 @@
   }
 }
 
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(300%);
+  }
+}
+
 .masonry-gallery {
   columns: 4 240px;
   gap: 0.75rem;
