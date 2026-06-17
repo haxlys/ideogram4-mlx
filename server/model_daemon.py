@@ -202,6 +202,14 @@ def is_mps_available() -> bool:
     return torch.backends.mps.is_available()
 
 
+def _max_rss_gib() -> float:
+    # macOS reports ru_maxrss in bytes; Linux reports it in KiB.
+    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if os.uname().sysname == "Darwin":
+        return rss / (1024**3)
+    return rss / (1024**2)
+
+
 def get_pipeline():
     with _lock:
         return _pipeline
@@ -610,6 +618,7 @@ class GenerateRequest(BaseModel):
     preset: str = DEFAULT_PRESET
     seed: int = DEFAULT_SEED
     format: str = DEFAULT_SERVER_FORMAT
+    quality: int | None = None
     prompt_id: int | None = None
     loras: list[dict] | None = None
 
@@ -789,7 +798,7 @@ def _run_generate(task_id: str, req: GenerateRequest):
                     torch.mps.current_allocated_memory() / (1024**3),
                     torch.mps.driver_allocated_memory() / (1024**3),
                     torch.mps.recommended_max_memory() / (1024**3),
-                    resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024**2),
+                    _max_rss_gib(),
                 )
             else:
                 logger.info("Task %s done in %.1fs", task_id, gen_s)
@@ -797,7 +806,7 @@ def _run_generate(task_id: str, req: GenerateRequest):
             buf = BytesIO()
             save_kw = {}
             if fmt in {"webp", "jpeg"}:
-                save_kw["quality"] = IMAGE_QUALITY_WEBP if fmt == "webp" else IMAGE_QUALITY_JPEG
+                save_kw["quality"] = req.quality or (IMAGE_QUALITY_WEBP if fmt == "webp" else IMAGE_QUALITY_JPEG)
             images[0].save(buf, format=pil_fmt, **save_kw)
             artifact = buf.getvalue()
 

@@ -2,20 +2,24 @@
 
 ## Architecture
 
-2-tier, local-only: **WebUI (:5173 default) → FastAPI (:8000 default)**
+3-process, local-only: **WebUI (:5173 default) → FastAPI (:8000 default) → Model Daemon (:8001 default)**
 
-- **FastAPI** (`server/main.py`) owns the Ideogram 4 pipeline in the same process.
-  Handles model load/unload, generation, image persistence, and SQLite storage.
-  Uses `threading.Thread` for pipeline load and generation (FastAPI is async,
-  but pipeline ops are CPU/MPS-bound). Model load, unload, LoRA apply/remove,
-  and generation share a pipeline operation lock.
-- **Model management** (`server/model_daemon.py`) is a plain module with no HTTP
-  server. Imported directly by `main.py`. Exposes `handle_load()`, `handle_unload()`,
-  `handle_status()`, `get_pipeline()`.
+- **Model daemon** (`server/model_daemon.py`) owns the single Ideogram 4 pipeline
+  in MPS memory. It handles model load/unload, LoRA apply/remove/download,
+  generation jobs, progress, and short-lived image artifacts. Keep it single-worker:
+  multiple worker processes would duplicate the huge model.
+- **FastAPI** (`server/main.py`) is the WebUI API gateway. It handles Magic Prompt,
+  request validation, SQLite prompt/image/form persistence, generated image file
+  persistence, and daemon proxying. It must not import or load the Ideogram
+  pipeline directly.
+- **CLI** (`ideogram4_mps.py`) uses the model daemon by default when reachable
+  (`--daemon auto`) and can fall back to direct local loading. Use
+  `--daemon require` when a warm daemon is required, or `--daemon off` for the
+  old standalone path.
 - **Configuration** (`server/config.py`) reads server settings from environment
   variables at import time. `run.sh` auto-loads `.env` from project root and
-  also reads `IDEOGRAM4_WEBUI_PORT`. Single source of truth for paths, ports,
-  defaults, and tuning parameters.
+  also reads `IDEOGRAM4_WEBUI_PORT` and `IDEOGRAM4_MODEL_DAEMON_PORT`. Single
+  source of truth for paths, ports, defaults, and tuning parameters.
 - **WebUI** (`webui/`) React + TypeScript + Vite. Proxies `/api/*` to
   `IDEOGRAM4_SERVER_PORT` via `vite.config.ts`.
 
@@ -44,19 +48,26 @@ local paths, private credentials, or assumptions about one user's toolchain.
 
 ## Commands
 
-### One-shot launch (everything)
+### Launch / restart
 ```bash
-./run.sh
+./run.sh              # full: model daemon + FastAPI server + WebUI
+./run.sh full         # same as above
+./run.sh backend      # FastAPI server only; keeps model daemon and WebUI running
+./run.sh client       # WebUI only; keeps FastAPI server and model daemon running
 ```
-Stops existing processes on configured server/webui ports (graceful first,
-force stop only if needed), installs deps, starts server→webui. Cleans up on
+`backend` is the normal choice when the model daemon is already loaded and only
+`server/main.py` needs a restart. It does not stop `IDEOGRAM4_MODEL_DAEMON_PORT`.
+`client` only restarts the Vite dev server. `full` stops existing processes on
+configured model daemon/server/webui ports (graceful first, force stop only if
+needed), installs deps, starts model daemon→server→webui, and cleans up on
 SIGINT/SIGTERM/EXIT.
 
-### Manual (debugging — 2 terminals in this order)
+### Manual (debugging — 3 terminals in this order)
 ```bash
 set -a && source .env && set +a  # load env vars
-python server/main.py            # terminal 1
-cd webui && pnpm dev             # terminal 2
+python server/model_daemon.py    # terminal 1
+python server/main.py            # terminal 2
+cd webui && pnpm dev             # terminal 3
 ```
 
 ### CLI generation (no server needed)
@@ -92,8 +103,8 @@ cd webui && pnpm lint            # ESLint
 - **Apple Silicon only.** M1+ required. ~50 GB unified memory for 1024×1024
   V4_QUALITY_48. No CUDA/NVIDIA support.
 - **Generation uses `threading.Thread`**, not `asyncio`. The pipeline runs in
-  the main process in a daemon thread. This avoids GIL issues since pytorch
-  operations release the GIL.
+  the model daemon process in a daemon thread. This avoids GIL issues since
+  pytorch operations release the GIL.
 - **Generation is local single-slot.** Only one generation is accepted at a
   time. Extra `/api/generate` requests return HTTP `409` instead of queuing
   unbounded work. Completed task status entries are cleaned after ~1 hour.
@@ -143,6 +154,13 @@ All settings are read from environment variables at import time by `server/confi
 | `IDEOGRAM4_MAGIC_PROMPT_TEMPERATURE` | `1.0` | LLM temperature |
 | `IDEOGRAM4_SERVER_HOST` | `127.0.0.1` | FastAPI bind host |
 | `IDEOGRAM4_SERVER_PORT` | `8000` | FastAPI listen port |
+| `IDEOGRAM4_MODEL_DAEMON_HOST` | `127.0.0.1` | Model daemon bind host |
+| `IDEOGRAM4_MODEL_DAEMON_PORT` | `8001` | Model daemon listen port |
+| `IDEOGRAM4_MODEL_DAEMON_URL` | `http://127.0.0.1:8001` | FastAPI/CLI model daemon URL |
+| `IDEOGRAM4_MODEL_DAEMON_LOG_LEVEL` | `info` | Model daemon uvicorn log level |
+| `IDEOGRAM4_MODEL_DAEMON_TIMEOUT` | `30` | FastAPI/CLI daemon request timeout seconds |
+| `IDEOGRAM4_MODEL_DAEMON_AUTOLOAD` | `1` | Whether daemon starts model load on startup |
+| `IDEOGRAM4_CLI_DAEMON_MODE` | `auto` | CLI daemon mode: `auto`, `require`, or `off` |
 | `IDEOGRAM4_WEBUI_HOST` | `127.0.0.1` | Vite WebUI bind host used by `run.sh` |
 | `IDEOGRAM4_WEBUI_PORT` | `5173` | Vite WebUI dev server port used by `run.sh` |
 | `IDEOGRAM4_SERVER_LOG_LEVEL` | `info` | Uvicorn log level |

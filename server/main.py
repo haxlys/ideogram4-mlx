@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""FastAPI server — owns the Ideogram 4 pipeline directly.
-Load/unload, generation, image persistence, DB — all in one process.
+"""FastAPI server — WebUI API gateway and persistence layer.
+Model load/unload, LoRA, and generation are delegated to model_daemon.py.
 """
 import base64
 import binascii
@@ -9,7 +9,6 @@ import logging
 import os
 import threading
 import time
-import uuid
 
 import requests
 from urllib.parse import urlparse
@@ -22,10 +21,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from config import (
     SERVER_HOST, SERVER_PORT, SERVER_LOG_LEVEL, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS,
     DEFAULT_PRESET, DEFAULT_SERVER_FORMAT, DEFAULT_SEED,
-    IMAGE_QUALITY_WEBP, IMAGE_QUALITY_JPEG,
     MAGIC_PROMPT_API_KEY, MAGIC_PROMPT_MODEL, MAGIC_PROMPT_BASE_URL,
     MAGIC_PROMPT_PROVIDER, MAGIC_PROMPT_LOCAL_LLAMA, MAGIC_PROMPT_MANAGED_LLAMA,
-    DEFAULT_LORA_STRENGTH,
     MIN_IMAGE_SIZE, MAX_IMAGE_SIZE, IMAGE_SIZE_MULTIPLE, MAX_CAPTION_JSON_BYTES,
     MAGIC_PROMPT_MAX_CHARS, MAGIC_PROMPT_MAX_IMAGES, MAGIC_PROMPT_MAX_IMAGE_BYTES,
     MAX_FORM_JSON_BYTES,
@@ -86,49 +83,7 @@ app.add_middleware(
 
 _tasks: dict = {}
 _tasks_lock = threading.Lock()
-_lora_download_tasks: dict = {}
-_lora_download_tasks_lock = threading.Lock()
-_lora_op_tasks: dict = {}
-_lora_op_tasks_lock = threading.Lock()
-_lora_op_lock = threading.Lock()
-_pipeline_ops_lock = threading.Lock()
-_pipeline_op_state_lock = threading.Lock()
-_pipeline_op_state: dict = {"label": None, "started_at": None}
-_generation_lock = threading.Lock()
 _TASK_TTL_SECONDS = 60 * 60
-
-
-def _load_model_locked():
-    _pipeline_ops_lock.acquire()
-    _set_pipeline_op("loading model")
-    try:
-        return handle_load()
-    finally:
-        _clear_pipeline_op()
-        _pipeline_ops_lock.release()
-
-
-def _set_pipeline_op(label: str):
-    with _pipeline_op_state_lock:
-        _pipeline_op_state["label"] = label
-        _pipeline_op_state["started_at"] = time.time()
-
-
-def _clear_pipeline_op():
-    with _pipeline_op_state_lock:
-        _pipeline_op_state["label"] = None
-        _pipeline_op_state["started_at"] = None
-
-
-def _pipeline_op_desc() -> str:
-    with _pipeline_op_state_lock:
-        label = _pipeline_op_state.get("label")
-        started_at = _pipeline_op_state.get("started_at")
-    if not label:
-        return "current model operation"
-    if not started_at:
-        return label
-    return f"{label} ({int(time.time() - started_at)}s)"
 
 
 def _cleanup_tasks_locked():
@@ -136,42 +91,6 @@ def _cleanup_tasks_locked():
     for task_id, task in list(_tasks.items()):
         if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
             del _tasks[task_id]
-
-
-def _cleanup_lora_download_tasks_locked():
-    cutoff = time.time() - _TASK_TTL_SECONDS
-    for task_id, task in list(_lora_download_tasks.items()):
-        if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
-            del _lora_download_tasks[task_id]
-
-
-def _cleanup_lora_op_tasks_locked():
-    cutoff = time.time() - _TASK_TTL_SECONDS
-    for task_id, task in list(_lora_op_tasks.items()):
-        if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
-            del _lora_op_tasks[task_id]
-
-
-def _update_lora_op_task(task_id: str, **updates):
-    with _lora_op_tasks_lock:
-        task = _lora_op_tasks.get(task_id)
-        if task is not None:
-            task.update(updates)
-
-
-def _lora_progress_callback(task_id: str):
-    def _callback(progress: int, msg: str, phase: str):
-        _update_lora_op_task(
-            task_id,
-            progress=max(0, min(progress, 99)),
-            msg=msg,
-            phase=phase,
-        )
-    return _callback
-
-
-def _busy_response(msg: str):
-    return JSONResponse(status_code=409, content={"error": msg})
 
 
 def _daemon_url(path: str) -> str:
@@ -270,281 +189,58 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/api/model/status")
 def api_model_status():
-    return handle_status()
+    result = _daemon_json("GET", "/model/status", timeout=5)
+    if isinstance(result, JSONResponse):
+        return {"state": "idle", "msg": "Model daemon unreachable."}
+    return result
 
 
 @app.post("/api/model/load")
 def api_load_model():
     logger.info("Model load requested via API")
-    if not is_mps_available():
-        return {"ok": False, "msg": "MPS not available. Requires Apple Silicon."}
-    if _pipeline_ops_lock.locked():
-        return _busy_response(f"A model operation is already running: {_pipeline_op_desc()}.")
-    threading.Thread(target=_load_model_locked, daemon=True).start()
-    return {"ok": True, "msg": "Load started."}
+    return _daemon_json("POST", "/model/load", timeout=5)
 
 
 @app.post("/api/model/unload")
 def api_unload_model():
-    if not _pipeline_ops_lock.acquire(blocking=False):
-        return _busy_response(f"A model operation is already running: {_pipeline_op_desc()}.")
-    _set_pipeline_op("unloading model")
-    try:
-        return handle_unload()
-    finally:
-        _clear_pipeline_op()
-        _pipeline_ops_lock.release()
+    return _daemon_json("POST", "/model/unload", timeout=MODEL_DAEMON_TIMEOUT)
 
 
 # ── LoRA endpoints ───────────────────────────────────────────────
 
 @app.get("/api/lora/status")
 def api_lora_status():
-    return get_lora_status()
+    return _daemon_json("GET", "/lora/status", timeout=5)
 
 
 @app.get("/api/lora/presets")
 def api_lora_presets():
-    return {"presets": get_lora_presets()}
-
-
-def _run_lora_download(task_id: str, preset_id: str):
-    try:
-        with _lora_download_tasks_lock:
-            _lora_download_tasks[task_id]["msg"] = "Downloading LoRA files..."
-        files = download_lora_preset(preset_id)
-        with _lora_download_tasks_lock:
-            _lora_download_tasks[task_id].update({
-                "state": "done",
-                "msg": "Download complete.",
-                "files": files,
-                "done_at": time.time(),
-            })
-    except Exception as e:
-        logger.exception("LoRA download task %s failed", task_id)
-        with _lora_download_tasks_lock:
-            _lora_download_tasks[task_id].update({
-                "state": "done",
-                "msg": f"Error: {e}",
-                "error": str(e),
-                "done_at": time.time(),
-            })
+    return _daemon_json("GET", "/lora/presets", timeout=5)
 
 
 @app.post("/api/lora/download")
 def api_download_lora(req: dict):
-    preset_id = str(req.get("preset_id", "")).strip()
-    if not preset_id:
-        return {"ok": False, "msg": "Missing LoRA preset id."}
-
-    task_id = uuid.uuid4().hex
-    with _lora_download_tasks_lock:
-        _cleanup_lora_download_tasks_locked()
-        _lora_download_tasks[task_id] = {
-            "state": "running",
-            "msg": "Starting download...",
-            "files": [],
-            "created_at": time.time(),
-        }
-
-    threading.Thread(target=_run_lora_download, args=(task_id, preset_id), daemon=True).start()
-    return {"ok": True, "task_id": task_id}
+    return _daemon_json("POST", "/lora/download", json_body=req, timeout=5)
 
 
 @app.get("/api/lora/download/{task_id}")
 def api_lora_download_status(task_id: str):
-    with _lora_download_tasks_lock:
-        _cleanup_lora_download_tasks_locked()
-        task = _lora_download_tasks.get(task_id)
-        if task is None:
-            return {"state": "done", "msg": "Task not found.", "files": []}
-        return {
-            "state": task.get("state", "done"),
-            "msg": task.get("msg", ""),
-            "files": task.get("files", []),
-            "error": task.get("error"),
-        }
-
-
-def _run_lora_apply(task_id: str, requested_loras, name: str, strength: float):
-    try:
-        wait_started = time.time()
-        while not _pipeline_ops_lock.acquire(timeout=1):
-            waited_s = int(time.time() - wait_started)
-            _update_lora_op_task(
-                task_id,
-                msg=f"Waiting for {_pipeline_op_desc()}... ({waited_s}s)",
-                phase="waiting",
-                progress=0,
-            )
-
-        _set_pipeline_op("applying LoRA and warming up")
-        try:
-            _update_lora_op_task(task_id, msg="Starting LoRA apply...", phase="start", progress=1)
-            if requested_loras:
-                result = apply_loras(requested_loras, progress_cb=_lora_progress_callback(task_id))
-            else:
-                result = apply_lora(name, strength, progress_cb=_lora_progress_callback(task_id))
-        finally:
-            _clear_pipeline_op()
-            _pipeline_ops_lock.release()
-
-        ok = bool(result.get("ok"))
-        _update_lora_op_task(
-            task_id,
-            state="done",
-            msg=result.get("msg", "LoRA apply complete." if ok else "LoRA apply failed."),
-            phase="done" if ok else "error",
-            progress=100 if ok else 0,
-            result=result,
-            error=None if ok else result.get("msg", "LoRA apply failed."),
-            done_at=time.time(),
-        )
-    except Exception as e:
-        logger.exception("LoRA apply task %s failed", task_id)
-        _update_lora_op_task(
-            task_id,
-            state="done",
-            msg=f"Error: {e}",
-            phase="error",
-            progress=0,
-            error=str(e),
-            done_at=time.time(),
-        )
-    finally:
-        _lora_op_lock.release()
-
-
-def _run_lora_remove(task_id: str):
-    try:
-        wait_started = time.time()
-        while not _pipeline_ops_lock.acquire(timeout=1):
-            waited_s = int(time.time() - wait_started)
-            _update_lora_op_task(
-                task_id,
-                msg=f"Waiting for {_pipeline_op_desc()}... ({waited_s}s)",
-                phase="waiting",
-                progress=0,
-            )
-
-        _set_pipeline_op("removing LoRA and warming up")
-        try:
-            _update_lora_op_task(task_id, msg="Starting LoRA remove...", phase="start", progress=1)
-            result = remove_lora(progress_cb=_lora_progress_callback(task_id))
-        finally:
-            _clear_pipeline_op()
-            _pipeline_ops_lock.release()
-
-        ok = bool(result.get("ok"))
-        _update_lora_op_task(
-            task_id,
-            state="done",
-            msg=result.get("msg", "LoRA removed." if ok else "LoRA remove failed."),
-            phase="done" if ok else "error",
-            progress=100 if ok else 0,
-            result=result,
-            error=None if ok else result.get("msg", "LoRA remove failed."),
-            done_at=time.time(),
-        )
-    except Exception as e:
-        logger.exception("LoRA remove task %s failed", task_id)
-        _update_lora_op_task(
-            task_id,
-            state="done",
-            msg=f"Error: {e}",
-            phase="error",
-            progress=0,
-            error=str(e),
-            done_at=time.time(),
-        )
-    finally:
-        _lora_op_lock.release()
+    return _daemon_json("GET", f"/lora/download/{task_id}", timeout=5)
 
 
 @app.post("/api/lora/apply")
 def api_apply_lora(req: dict):
-    requested_loras = req.get("loras")
-    name = req.get("name", "")
-    strength = float(req.get("strength", DEFAULT_LORA_STRENGTH))
-    if not requested_loras and not name:
-        return {"ok": False, "msg": "Missing LoRA name."}
-    if not _lora_op_lock.acquire(blocking=False):
-        return _busy_response("A LoRA operation is already running.")
-
-    task_id = uuid.uuid4().hex
-    with _lora_op_tasks_lock:
-        _cleanup_lora_op_tasks_locked()
-        _lora_op_tasks[task_id] = {
-            "state": "running",
-            "msg": "Queued LoRA apply...",
-            "phase": "queued",
-            "progress": 0,
-            "created_at": time.time(),
-        }
-
-    t = threading.Thread(
-        target=_run_lora_apply,
-        args=(task_id, requested_loras, name, strength),
-        daemon=True,
-    )
-    try:
-        t.start()
-    except Exception:
-        _lora_op_lock.release()
-        with _lora_op_tasks_lock:
-            _lora_op_tasks.pop(task_id, None)
-        raise
-    return {"ok": True, "task_id": task_id, "msg": "LoRA apply started."}
+    return _daemon_json("POST", "/lora/apply", json_body=req, timeout=5)
 
 
 @app.post("/api/lora/remove")
 def api_remove_lora():
-    if not _lora_op_lock.acquire(blocking=False):
-        return _busy_response("A LoRA operation is already running.")
-
-    task_id = uuid.uuid4().hex
-    with _lora_op_tasks_lock:
-        _cleanup_lora_op_tasks_locked()
-        _lora_op_tasks[task_id] = {
-            "state": "running",
-            "msg": "Queued LoRA remove...",
-            "phase": "queued",
-            "progress": 0,
-            "created_at": time.time(),
-        }
-
-    t = threading.Thread(target=_run_lora_remove, args=(task_id,), daemon=True)
-    try:
-        t.start()
-    except Exception:
-        _lora_op_lock.release()
-        with _lora_op_tasks_lock:
-            _lora_op_tasks.pop(task_id, None)
-        raise
-    return {"ok": True, "task_id": task_id, "msg": "LoRA remove started."}
+    return _daemon_json("POST", "/lora/remove", timeout=5)
 
 
 @app.get("/api/lora/operation/{task_id}")
 def api_lora_operation_status(task_id: str):
-    with _lora_op_tasks_lock:
-        _cleanup_lora_op_tasks_locked()
-        task = _lora_op_tasks.get(task_id)
-        if task is None:
-            return {
-                "state": "done",
-                "msg": "Task not found.",
-                "phase": "done",
-                "progress": 0,
-                "error": "Task not found.",
-            }
-        return {
-            "state": task.get("state", "done"),
-            "msg": task.get("msg", ""),
-            "phase": task.get("phase", ""),
-            "progress": task.get("progress", 0),
-            "error": task.get("error"),
-            "result": task.get("result"),
-        }
+    return _daemon_json("GET", f"/lora/operation/{task_id}", timeout=5)
 
 
 # ── Validation / Magic prompt ─────────────────────────────────────
@@ -755,145 +451,6 @@ class LastFormRequest(BaseModel):
         return value
 
 
-def _run_generate(task_id: str, caption: dict, width: int, height: int, preset: str, seed: int, fmt: str = "webp"):
-    from ideogram4.sampler_configs import PRESETS
-
-    try:
-        _tasks[task_id]["msg"] = "Encoding prompt..."
-
-        prompt_str = json.dumps(caption, ensure_ascii=False)
-        preset_cfg = PRESETS.get(preset, PRESETS["V4_QUALITY_48"])
-
-        if width % 16:
-            width = (width // 16) * 16
-        if height % 16:
-            height = (height // 16) * 16
-
-        total_steps = preset_cfg.num_steps
-        _tasks[task_id]["msg"] = f"Generating ({width}x{height}, {total_steps} steps)..."
-        _tasks[task_id]["progress"] = 0
-        _tasks[task_id]["total_steps"] = total_steps
-
-        wait_started = time.time()
-        while not _pipeline_ops_lock.acquire(timeout=1):
-            waited_s = int(time.time() - wait_started)
-            _tasks[task_id]["msg"] = f"Waiting for {_pipeline_op_desc()}... ({waited_s}s)"
-
-        _set_pipeline_op("generating image")
-        try:
-            _tasks[task_id]["msg"] = f"Preparing pipeline ({width}x{height}, {total_steps} steps)..."
-            pipe = get_pipeline()
-            if pipe is None:
-                raise RuntimeError("Model not loaded.")
-
-            t0 = time.time()
-
-            step_count = [0]
-            _orig_forward = pipe.unconditional_transformer.forward
-
-            def _patched_forward(*args, **kwargs):
-                result = _orig_forward(*args, **kwargs)
-                step_count[0] += 1
-                pct = min(int(step_count[0] / total_steps * 100), 99)
-                _tasks[task_id]["progress"] = pct
-                _tasks[task_id]["msg"] = f"Generating ({width}x{height}, {step_count[0]}/{total_steps} steps)..."
-                return result
-
-            pipe.unconditional_transformer.forward = _patched_forward
-            try:
-                with torch.inference_mode():
-                    images = pipe(
-                        prompts=prompt_str,
-                        height=height,
-                        width=width,
-                        num_steps=total_steps,
-                        guidance_schedule=preset_cfg.guidance_schedule,
-                        mu=preset_cfg.mu,
-                        std=preset_cfg.std,
-                        seed=seed,
-                        raise_on_caption_issues=False,
-                    )
-            finally:
-                pipe.unconditional_transformer.forward = _orig_forward
-
-            gen_s = time.time() - t0
-            _tasks[task_id]["progress"] = 100
-            _tasks[task_id]["msg"] = f"Done in {gen_s:.1f}s"
-
-            if torch.backends.mps.is_available():
-                mem_drv = torch.mps.driver_allocated_memory()
-                mem_cur = torch.mps.current_allocated_memory()
-                mem_max = torch.mps.recommended_max_memory()
-                mem_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-                logger.info("Task %s done in %.1fs  |  MPS cur:%.1fG drv:%.1fG max:%.1fG  |  RSS: %.1fG",
-                             task_id, gen_s,
-                             mem_cur / (1024**3),
-                             mem_drv / (1024**3),
-                             mem_max / (1024**3) if mem_max else 0,
-                             mem_rss / (1024**2))
-            else:
-                mem_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-                logger.info("Task %s done in %.1fs  |  RSS: %.1fG",
-                             task_id, gen_s,
-                             mem_rss / (1024**2))
-
-            buf = BytesIO()
-            save_kw = {}
-            if fmt in ("webp", "jpeg"):
-                save_kw["quality"] = IMAGE_QUALITY_WEBP if fmt == "webp" else IMAGE_QUALITY_JPEG
-            PIL_fmt = fmt.upper()
-            images[0].save(buf, format=PIL_fmt, **save_kw)
-            buf.seek(0)
-
-            timestamp = uuid.uuid4().hex[:12]
-            filename = f"{timestamp}.{fmt}"
-            filepath = OUTPUT_DIR / filename
-            filepath.write_bytes(buf.getvalue())
-            buf.seek(0)
-
-            hld_text = caption.get("high_level_description", "")
-            lora_status = get_lora_status()
-            lora_name = lora_status.get("applied")
-            lora_strength = lora_status.get("strength") if lora_name else None
-
-            image_id = add_image(
-                hld_text, width, height, preset, seed,
-                filename,
-                _tasks[task_id].get("prompt_id"),
-                lora_name,
-                lora_strength,
-            )
-        finally:
-            _clear_pipeline_op()
-            _pipeline_ops_lock.release()
-
-        logger.info("Task %s → %s (id=%d, %dx%d, lora=%s)", task_id, filename, image_id, width, height, lora_name or "none")
-
-        _tasks[task_id]["state"] = "done"
-        _tasks[task_id]["image_b64"] = base64.b64encode(buf.getvalue()).decode()
-        _tasks[task_id]["image_meta"] = {
-            "hld": hld_text,
-            "width": width,
-            "height": height,
-            "preset": preset,
-            "seed": seed,
-            "prompt_id": _tasks[task_id].get("prompt_id"),
-            "image_id": image_id,
-            "filename": filename,
-            "lora_name": lora_name,
-            "lora_strength": lora_strength,
-        }
-
-    except Exception as e:
-        logger.exception("Generation task %s failed", task_id)
-        _tasks[task_id]["state"] = "done"
-        _tasks[task_id]["msg"] = f"Error: {e}"
-        _tasks[task_id]["image"] = None
-    finally:
-        _tasks[task_id]["done_at"] = time.time()
-        _generation_lock.release()
-
-
 @app.post("/api/generate")
 def api_generate(req: GenerateRequest):
     logger.info("Generate request: %dx%d, %s, seed=%d, prompt_id=%s",
@@ -902,64 +459,66 @@ def api_generate(req: GenerateRequest):
     with _tasks_lock:
         _cleanup_tasks_locked()
 
-    if not _generation_lock.acquire(blocking=False):
-        return JSONResponse(
-            status_code=409,
-            content={"error": "A generation is already running. Wait for it to finish before starting another."},
-        )
+    result = _daemon_json("POST", "/generate", json_body=req.model_dump(), timeout=5)
+    if isinstance(result, JSONResponse):
+        return result
 
-    task_id = uuid.uuid4().hex
+    task_id = result.get("task_id")
+    if not task_id:
+        return JSONResponse(status_code=502, content={"error": "Model daemon did not return a task id."})
     with _tasks_lock:
         _tasks[task_id] = {
             "state": "running", "msg": "Queued...", "image": None,
             "progress": 0, "total_steps": 0, "prompt_id": req.prompt_id,
             "created_at": time.time(),
         }
-    logger.info("Generation task %s started: %dx%d, %s, seed=%d",
+    logger.info("Daemon generation task %s started: %dx%d, %s, seed=%d",
                  task_id, req.width, req.height, req.preset, req.seed)
-
-    t = threading.Thread(
-        target=_run_generate,
-        args=(task_id, req.caption, req.width, req.height, req.preset, req.seed, req.format),
-        daemon=True,
-    )
-    try:
-        t.start()
-    except Exception:
-        _generation_lock.release()
-        with _tasks_lock:
-            _tasks.pop(task_id, None)
-        raise
-    return {"task_id": task_id}
+    return result
 
 
 @app.get("/api/status/{task_id}")
 def api_task_status(task_id: str):
     with _tasks_lock:
         _cleanup_tasks_locked()
-        task = _tasks.get(task_id)
-    if task is None:
-        return {"state": "done", "msg": "Task not found.", "image": None, "progress": 0, "total_steps": 0}
+        local_task = _tasks.get(task_id)
 
-    image_b64 = task.pop("image_b64", None)
-    image_meta = task.pop("image_meta", None)
+    daemon_status = _daemon_json("GET", f"/status/{task_id}", timeout=5)
+    if isinstance(daemon_status, JSONResponse):
+        return daemon_status
 
-    if image_b64:
-        meta = image_meta or {}
-        task["image"] = {
-            "id": meta.get("image_id"),
-            "url": f"/api/images/{meta.get('image_id')}/file",
-            "hld": meta.get("hld", ""),
-            "time": time.strftime("%H:%M:%S"),
-            "prompt_id": meta.get("prompt_id"),
-        }
+    image = local_task.get("image") if local_task else None
+    meta = daemon_status.get("image_meta") or {}
+
+    if daemon_status.get("state") == "done" and daemon_status.get("has_artifact") and not image:
+        try:
+            image = _persist_daemon_artifact(task_id, meta)
+            with _tasks_lock:
+                task = _tasks.setdefault(task_id, {"created_at": time.time()})
+                task.update({
+                    "state": "done",
+                    "msg": daemon_status.get("msg", ""),
+                    "image": image,
+                    "progress": daemon_status.get("progress", 100),
+                    "total_steps": daemon_status.get("total_steps", 0),
+                    "done_at": time.time(),
+                })
+        except Exception as e:
+            logger.exception("Failed to persist daemon artifact for task %s", task_id)
+            return {
+                "state": "done",
+                "msg": f"Error: {e}",
+                "image": None,
+                "progress": daemon_status.get("progress", 0),
+                "total_steps": daemon_status.get("total_steps", 0),
+            }
 
     return {
-        "state": task["state"],
-        "msg": task.get("msg", ""),
-        "image": task.get("image"),
-        "progress": task.get("progress", 0),
-        "total_steps": task.get("total_steps", 0),
+        "state": daemon_status.get("state", "done"),
+        "msg": daemon_status.get("msg", ""),
+        "image": image,
+        "progress": daemon_status.get("progress", 0),
+        "total_steps": daemon_status.get("total_steps", 0),
     }
 
 

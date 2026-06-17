@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 VENV_PYTHON="$ROOT/.venv/bin/python"
-PNPM="$(command -v pnpm)"
+PNPM="${PNPM:-$(command -v pnpm || true)}"
 
 if [ -f "$ROOT/.env" ]; then
   set -a
@@ -14,9 +14,55 @@ fi
 
 SERVER_PORT="${IDEOGRAM4_SERVER_PORT:-8000}"
 MODEL_DAEMON_PORT="${IDEOGRAM4_MODEL_DAEMON_PORT:-8001}"
+MODEL_DAEMON_URL="${IDEOGRAM4_MODEL_DAEMON_URL:-http://127.0.0.1:${MODEL_DAEMON_PORT}}"
 WEBUI_PORT="${IDEOGRAM4_WEBUI_PORT:-5173}"
 WEBUI_HOST="${IDEOGRAM4_WEBUI_HOST:-127.0.0.1}"
 MAGIC_LLM_PID=""
+CLEANED_UP=0
+
+usage() {
+  cat <<EOF
+Usage:
+  ./run.sh [mode]
+
+Modes:
+  full      Restart model daemon, FastAPI server, and WebUI. Default.
+  backend   Restart only the FastAPI server; keep model daemon and WebUI running.
+  client    Restart only the Vite WebUI; keep backend and model daemon running.
+
+Aliases:
+  all -> full
+  server, api -> backend
+  webui, frontend -> client
+EOF
+}
+
+MODE="${1:-full}"
+if [ "$#" -gt 1 ]; then
+  usage >&2
+  exit 1
+fi
+
+case "$MODE" in
+  full|all|--full|--all)
+    MODE="full"
+    ;;
+  backend|server|api|--backend|--server|--api)
+    MODE="backend"
+    ;;
+  client|webui|frontend|--client|--webui|--frontend)
+    MODE="client"
+    ;;
+  help|-h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown mode: $MODE" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
 
 is_enabled() {
   case "${1:-}" in
@@ -33,6 +79,24 @@ should_manage_magic_llm() {
     return 0
   fi
   return 1
+}
+
+require_pnpm() {
+  if [ -z "$PNPM" ]; then
+    echo "pnpm was not found in PATH." >&2
+    exit 1
+  fi
+}
+
+install_python_deps() {
+  echo "Installing Python dependencies..."
+  "$VENV_PYTHON" -m pip install -r "$ROOT/server/requirements.txt" -q
+}
+
+install_webui_deps() {
+  require_pnpm
+  echo "Installing webui dependencies..."
+  (cd "$ROOT/webui" && "$PNPM" install --silent)
 }
 
 stop_port() {
@@ -57,6 +121,11 @@ stop_port() {
 }
 
 cleanup() {
+  if [ "$CLEANED_UP" = "1" ]; then
+    return
+  fi
+  CLEANED_UP=1
+
   echo ""
   echo "Shutting down..."
   for pid in "${SERVER_PID:-}" "${MODEL_DAEMON_PID:-}" "${WEBUI_PID:-}" "${MAGIC_LLM_PID:-}"; do
@@ -164,38 +233,88 @@ start_magic_llm() {
   wait_for_http "http://127.0.0.1:$port/health" "Local magic prompt LLM" 180
 }
 
+warn_if_model_daemon_unreachable() {
+  if curl -sf "${MODEL_DAEMON_URL%/}/health" >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Warning: model daemon is not reachable at ${MODEL_DAEMON_URL%/}." >&2
+  echo "FastAPI will still start, but image generation needs the daemon." >&2
+}
+
+run_full() {
+  install_python_deps
+  install_webui_deps
+
+  stop_port "$SERVER_PORT" "server"
+  stop_port "$MODEL_DAEMON_PORT" "model daemon"
+  stop_port "$WEBUI_PORT" "webui"
+  start_magic_llm
+
+  echo ""
+  echo "Starting model daemon (port $MODEL_DAEMON_PORT), server (port $SERVER_PORT), and webui (port $WEBUI_PORT)..."
+  echo "  Model: http://localhost:$MODEL_DAEMON_PORT"
+  echo "  API:   http://localhost:$SERVER_PORT"
+  echo "  Web:   http://localhost:$WEBUI_PORT"
+  echo ""
+
+  "$VENV_PYTHON" "$ROOT/server/model_daemon.py" &
+  MODEL_DAEMON_PID=$!
+
+  wait_for_http "http://127.0.0.1:${MODEL_DAEMON_PORT}/health" "Model daemon" 60
+
+  "$VENV_PYTHON" "$ROOT/server/main.py" &
+  SERVER_PID=$!
+
+  wait_for_http "http://127.0.0.1:${SERVER_PORT}/api/model/status" "FastAPI server" 60
+  wait_for_model_loaded 300
+
+  (cd "$ROOT/webui" && "$PNPM" run dev -- --host "$WEBUI_HOST" --port "$WEBUI_PORT") &
+  WEBUI_PID=$!
+
+  wait "$SERVER_PID" "$WEBUI_PID"
+}
+
+run_backend() {
+  install_python_deps
+  warn_if_model_daemon_unreachable
+
+  stop_port "$SERVER_PORT" "server"
+
+  echo ""
+  echo "Starting FastAPI server only (port $SERVER_PORT)..."
+  echo "  API:   http://localhost:$SERVER_PORT"
+  echo "  Model: ${MODEL_DAEMON_URL%/} (kept running)"
+  echo ""
+
+  "$VENV_PYTHON" "$ROOT/server/main.py" &
+  SERVER_PID=$!
+
+  wait_for_http "http://127.0.0.1:${SERVER_PORT}/api/model/status" "FastAPI server" 60
+  wait "$SERVER_PID"
+}
+
+run_client() {
+  install_webui_deps
+
+  stop_port "$WEBUI_PORT" "webui"
+
+  echo ""
+  echo "Starting WebUI only (port $WEBUI_PORT)..."
+  echo "  Web:   http://localhost:$WEBUI_PORT"
+  echo "  API:   http://localhost:$SERVER_PORT (kept running)"
+  echo ""
+
+  (cd "$ROOT/webui" && "$PNPM" run dev -- --host "$WEBUI_HOST" --port "$WEBUI_PORT") &
+  WEBUI_PID=$!
+
+  wait "$WEBUI_PID"
+}
+
 trap cleanup EXIT INT TERM
 
-echo "Installing Python dependencies..."
-$VENV_PYTHON -m pip install -r "$ROOT/server/requirements.txt" -q
-
-echo "Installing webui dependencies..."
-(cd "$ROOT/webui" && $PNPM install --silent)
-
-stop_port "$SERVER_PORT" "server"
-stop_port "$MODEL_DAEMON_PORT" "model daemon"
-stop_port "$WEBUI_PORT" "webui"
-start_magic_llm
-
-echo ""
-echo "Starting model daemon (port $MODEL_DAEMON_PORT), server (port $SERVER_PORT), and webui (port $WEBUI_PORT)..."
-echo "  Model: http://localhost:$MODEL_DAEMON_PORT"
-echo "  API:   http://localhost:$SERVER_PORT"
-echo "  Web:   http://localhost:$WEBUI_PORT"
-echo ""
-
-$VENV_PYTHON "$ROOT/server/model_daemon.py" &
-MODEL_DAEMON_PID=$!
-
-wait_for_http "http://127.0.0.1:${MODEL_DAEMON_PORT}/health" "Model daemon" 60
-
-$VENV_PYTHON "$ROOT/server/main.py" &
-SERVER_PID=$!
-
-wait_for_http "http://127.0.0.1:${SERVER_PORT}/api/model/status" "FastAPI server" 60
-wait_for_model_loaded 300
-
-(cd "$ROOT/webui" && $PNPM run dev -- --host "$WEBUI_HOST" --port "$WEBUI_PORT") &
-WEBUI_PID=$!
-
-wait $SERVER_PID $WEBUI_PID
+case "$MODE" in
+  full) run_full ;;
+  backend) run_backend ;;
+  client) run_client ;;
+esac

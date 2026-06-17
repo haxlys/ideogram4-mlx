@@ -58,6 +58,14 @@ hf auth login
 
 Then open http://localhost:5173.
 
+`run.sh` also supports targeted restarts:
+
+```bash
+./run.sh full      # model daemon + FastAPI server + WebUI (default)
+./run.sh backend   # FastAPI server only; keeps the loaded model daemon alive
+./run.sh client    # Vite WebUI only; keeps backend and model daemon alive
+```
+
 > **Note:** `ideogram4` is not published on PyPI. `pip install git+...` pulls it
 > directly from the [official GitHub repo](https://github.com/ideogram-oss/ideogram4).
 > `huggingface-cli login` is deprecated — use `hf auth login` instead.
@@ -98,16 +106,22 @@ Browser (localhost:5173 by default)
     │ HTTP (Vite dev proxy /api → localhost:8000 by default)
     ▼
 FastAPI Server (server/main.py, port 8000 by default)
+    │  WebUI API, Magic Prompt, SQLite, image persistence
     │
-    ├── model_daemon.py    ← model lifecycle, LoRA, get_pipeline()
-    │     ├── LoRA apply/remove (server/apply_lora.py)
-    │     │     Lokr / standard weight merge → load_state_dict()
-    │     └── Ideogram4Pipeline (MPS)
-    │           FP8 → bf16 on CPU → MPS
-    │           Qwen3-VL text encoder (text-only)
-    │           Conditional + Unconditional transformers
-    │           VAE autoencoder
+    │ HTTP (local model RPC)
+    ▼
+Model Daemon (server/model_daemon.py, port 8001 by default)
+    │  Owns the single Ideogram4Pipeline in MPS memory
+    │  Model load/unload, LoRA, generation jobs, artifacts
     │
+    ├── apply_lora.py      ← Lokr / standard weight merge
+    └── Ideogram4Pipeline (MPS)
+          FP8 → bf16 on CPU → MPS
+          Qwen3-VL text encoder (text-only)
+          Conditional + Unconditional transformers
+          VAE autoencoder
+    │
+FastAPI side modules:
     ├── magic_prompt.py    ← POST /api/magic-prompt → OpenAI-compatible LLM
     │
     ├── config.py          ← env var config (paths, ports, defaults)
@@ -121,26 +135,44 @@ FastAPI Server (server/main.py, port 8000 by default)
 
 | Default port | Variable | Process | Role |
 |--------------|----------|---------|------|
-| 8000 | `IDEOGRAM4_SERVER_PORT` | `main.py` | FastAPI server, pipeline owner, SQLite |
+| 8001 | `IDEOGRAM4_MODEL_DAEMON_PORT` | `model_daemon.py` | Single MPS pipeline owner, LoRA, generation jobs |
+| 8000 | `IDEOGRAM4_SERVER_PORT` | `main.py` | FastAPI gateway, SQLite, generated image persistence |
 | 5173 | `IDEOGRAM4_WEBUI_PORT` | Vite dev server | React WebUI with proxy to `IDEOGRAM4_SERVER_PORT` |
 
 ### Startup flow (`./run.sh`)
 
+`./run.sh` defaults to `full` mode:
+
 1. Installs Python + Node dependencies
 2. Loads `.env` from project root (if present)
-3. Stops existing processes on the configured server/webui ports (graceful stop first, force stop only if needed)
-4. Starts server and webui on the configured ports in parallel
+3. Stops existing processes on the configured model daemon/server/webui ports (graceful stop first, force stop only if needed)
+4. Starts model daemon, server, then webui
 5. Cleans up all processes on SIGINT / SIGTERM / EXIT
+
+For targeted restarts:
+
+| Command | Stops | Starts | Keeps running |
+|---------|-------|--------|---------------|
+| `./run.sh full` | model daemon, FastAPI, WebUI | model daemon, FastAPI, WebUI | — |
+| `./run.sh backend` | FastAPI server only | FastAPI server only | model daemon, WebUI |
+| `./run.sh client` | WebUI only | WebUI only | model daemon, FastAPI server |
+
+Use `./run.sh backend` when the model is already loaded and you only changed
+FastAPI code. This avoids paying the model load cost again.
 
 ### Manual startup (for debugging)
 
 ```bash
 # Load env vars, then:
-# Terminal 1: API Server
+# Terminal 1: Model daemon
+set -a && source .env && set +a
+python server/model_daemon.py
+
+# Terminal 2: API Server
 set -a && source .env && set +a
 python server/main.py
 
-# Terminal 2: WebUI
+# Terminal 3: WebUI
 cd webui && pnpm dev -- --host "${IDEOGRAM4_WEBUI_HOST:-127.0.0.1}" --port "${IDEOGRAM4_WEBUI_PORT:-5173}"
 ```
 
@@ -178,6 +210,8 @@ More WebUI notes: [`webui/README.md`](webui/README.md)
 | `--quality` | — | Lossy quality 1-100 (webp/jpeg only; default: lossless) |
 | `--lora` | — | Path to LoRA `.safetensors` to apply (Lokr or standard) |
 | `--lora-strength` | `0.6` | LoRA merge strength |
+| `--daemon` | `auto` | `auto` uses the model daemon when reachable and falls back to direct mode; `require` fails if daemon is unavailable; `off` always loads directly |
+| `--daemon-url` | `http://127.0.0.1:8001` | Model daemon URL for CLI generation |
 | `--out` | **required** | Output image path |
 
 ## JSON caption format
@@ -224,11 +258,12 @@ Full format reference: https://github.com/ideogram-oss/ideogram4/blob/main/docs/
 ### Runtime concurrency
 
 This is a local single-user app. Model load, unload, LoRA apply/remove, and
-generation share one in-process pipeline and are protected by a pipeline
-operation lock. Generation runs in a daemon thread, but only one generation is
-accepted at a time; extra `/api/generate` requests return `409` instead of
-queuing unbounded work. Completed task status entries are kept briefly for
-polling and cleaned up after about one hour.
+generation share one pipeline inside `model_daemon.py` and are protected by a
+daemon-side pipeline operation lock. Generation runs in a daemon thread, but
+only one generation is accepted at a time; extra `/api/generate` requests return
+`409` instead of queuing unbounded work. Completed daemon task artifacts are kept
+briefly for polling/download and cleaned up after about one hour. FastAPI stores
+WebUI results in SQLite after downloading the daemon artifact.
 
 ## Memory & speed
 
@@ -304,7 +339,8 @@ All processes write structured runtime logs to `logs/` (gitignored):
 | Process | Log file pattern | Content |
 |---------|-----------------|---------|
 | CLI (`ideogram4_mps.py`) | `logs/ideogram4_mps-<ts>.log` | Download, dequant, loading, generation, output |
-| Server (`main.py`) | `logs/server-<ts>.log` | HTTP requests, model lifecycle, generation, uvicorn |
+| Model daemon (`model_daemon.py`) | `logs/model-<ts>.log` | Model lifecycle, LoRA, generation jobs, artifacts |
+| Server (`main.py`) | `logs/server-<ts>.log` | HTTP requests, Magic Prompt, SQLite persistence, daemon proxy |
 
 Logs include timestamps, severity level, and structured messages. Set
 `IDEOGRAM4_LOG_DIR` to override the default `logs/` directory.
@@ -314,10 +350,10 @@ The `.log` suffix from generation metadata (`examples/result.log`) is kept in gi
 
 ## Local Security Defaults
 
-The WebUI and API are designed for a trusted single-user machine. By default,
-the FastAPI server binds to `127.0.0.1`, CORS is limited to the local Vite
-origins, and image files are only served or deleted when they live inside
-`IDEOGRAM4_OUTPUT_DIR`.
+The WebUI, API, and model daemon are designed for a trusted single-user machine.
+By default, both FastAPI and the model daemon bind to `127.0.0.1`, CORS is
+limited to the local Vite origins, and image files are only served or deleted
+when they live inside `IDEOGRAM4_OUTPUT_DIR`.
 
 If you intentionally expose the API on a LAN by setting
 `IDEOGRAM4_SERVER_HOST=0.0.0.0`, put it behind your own network controls. The
@@ -351,6 +387,13 @@ All settings are read from environment variables at import time by `server/confi
 | `IDEOGRAM4_MAGIC_PROMPT_MAX_IMAGE_BYTES` | `6291456` | Maximum decoded bytes per Quick Prompt image |
 | `IDEOGRAM4_SERVER_HOST` | `127.0.0.1` | FastAPI bind host |
 | `IDEOGRAM4_SERVER_PORT` | `8000` | FastAPI listen port |
+| `IDEOGRAM4_MODEL_DAEMON_HOST` | `127.0.0.1` | Model daemon bind host |
+| `IDEOGRAM4_MODEL_DAEMON_PORT` | `8001` | Model daemon listen port |
+| `IDEOGRAM4_MODEL_DAEMON_URL` | `http://127.0.0.1:8001` | FastAPI/CLI model daemon URL |
+| `IDEOGRAM4_MODEL_DAEMON_LOG_LEVEL` | `info` | Model daemon uvicorn log level |
+| `IDEOGRAM4_MODEL_DAEMON_TIMEOUT` | `30` | FastAPI/CLI daemon request timeout seconds |
+| `IDEOGRAM4_MODEL_DAEMON_AUTOLOAD` | `1` | Whether daemon starts model load on startup |
+| `IDEOGRAM4_CLI_DAEMON_MODE` | `auto` | CLI daemon mode: `auto`, `require`, or `off` |
 | `IDEOGRAM4_WEBUI_HOST` | `127.0.0.1` | Vite WebUI bind host used by `run.sh` |
 | `IDEOGRAM4_WEBUI_PORT` | `5173` | Vite WebUI dev server port used by `run.sh` |
 | `IDEOGRAM4_SERVER_LOG_LEVEL` | `info` | Uvicorn log level |
