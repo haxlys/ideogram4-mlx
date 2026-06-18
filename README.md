@@ -149,12 +149,15 @@ cache budget.
 Use [docs/benchmarks.md](docs/benchmarks.md) for the canonical prompt, seed,
 presets, and metrics. Current local measurements:
 
-| Runtime | Case | Result |
-| --- | --- | --- |
-| PyTorch/MPS legacy | model load | about 285s |
-| MLX q8 | model load | about 2-3s |
-| PyTorch/MPS legacy | 1024x1024 `V4_QUALITY_48`, seed `20260608` | 408.0s |
-| MLX q8 | 1024x1024 `V4_QUALITY_48`, seed `20260608` | 375.1s |
+| Case | PyTorch/MPS legacy | MLX q8 | Difference |
+| --- | --- | --- | --- |
+| Model load, local files ready | about 285s | about 2-3s | MLX loads about 95-143x faster |
+| 1024x1024 `V4_QUALITY_48`, seed `20260608` | 408.0s | 375.1s | MLX saves 32.9s, about 8.1% faster |
+
+The 1024 benchmark uses the same `examples/caption.json` prompt, preset, seed,
+and output size as the legacy run. The old MPS result is preserved in
+`examples/result.log`; the MLX result was generated with the q8 runtime after
+the model was available locally.
 
 ## Magic Prompt
 

@@ -18,12 +18,22 @@ Use `examples/caption.json` unless a benchmark explicitly says otherwise.
 
 ## Measurements So Far
 
+### MPS vs MLX
+
+| Case | PyTorch/MPS legacy | MLX q8 | Difference |
+| --- | --- | --- | --- |
+| Model load, local files ready | about 285s, from historical notes | about 2-3s after local model is present | MLX loads about 95-143x faster |
+| 1024x1024 `V4_QUALITY_48`, seed `20260608` | 408.0s | 375.1s | MLX saves 32.9s, about 8.1% faster |
+
+The 1024 comparison used the same `examples/caption.json` prompt, output size,
+`V4_QUALITY_48` preset, and seed `20260608`. The legacy MPS result is recorded
+in `examples/result.log`. The MLX q8 result was generated after the local
+`MLXBits/ideogram-4-mlx-q8` model was present.
+
+### MLX Smoke Results
+
 | Runtime | Case | Result |
 | --- | --- | --- |
-| PyTorch/MPS legacy | model load | about 285s, from historical notes |
-| MLX q8 | model load | about 2-3s after local model is present |
-| PyTorch/MPS legacy | 1024x1024 `V4_QUALITY_48`, seed `20260608` | 408.0s |
-| MLX q8 | 1024x1024 `V4_QUALITY_48`, seed `20260608` | 375.1s |
 | MLX q8 | 256x256 `V4_TURBO_12`, no LoRA | about 7-8s |
 | MLX q8 | 256x256 `V4_TURBO_12`, LoRA applied | about 8-9s |
 
