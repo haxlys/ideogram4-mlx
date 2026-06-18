@@ -26,6 +26,17 @@ WebUI (:5173) -> FastAPI (:8000) -> Model daemon (:8001) -> mflux/MLX
 The FastAPI/WebUI generation contract stays stable: submit a structured caption,
 width, height, preset, seed, and output format.
 
+## Legacy PyTorch/MPS Runtime
+
+The previous PyTorch/MPS implementation is preserved on the
+[`legacy/pytorch-mps`](https://github.com/haxlys/ideogram4-mps/tree/legacy/pytorch-mps)
+branch. Use that branch if you need the old direct `torch`/MPS runtime,
+FP8 dequant loading path, MPS scheduler patching, MPS warmup behavior, or the
+old `ideogram4_mps.py` CLI.
+
+This `main` line is now optimized for the MLX/mflux q8 runtime and does not aim
+to keep backwards compatibility with the old PyTorch/MPS architecture.
+
 ## Install
 
 ```bash
