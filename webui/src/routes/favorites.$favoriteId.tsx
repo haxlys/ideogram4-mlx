@@ -23,6 +23,7 @@ function FavoritePage() {
   const { state, dispatch } = useAppState();
   const genQueueRef = useRef(state.genQueue);
   const resultImageRef = useRef(state.resultImage);
+  const resultImagePinnedRef = useRef(state.resultImagePinned);
   const loadedRef = useRef(false);
 
   useEffect(() => {
@@ -32,6 +33,10 @@ function FavoritePage() {
   useEffect(() => {
     resultImageRef.current = state.resultImage;
   }, [state.resultImage]);
+
+  useEffect(() => {
+    resultImagePinnedRef.current = state.resultImagePinned;
+  }, [state.resultImagePinned]);
 
   useEffect(() => {
     loadedRef.current = false;
@@ -106,7 +111,11 @@ function FavoritePage() {
       const doneResult = findLatestDoneJobResult(genQueueRef.current, promptId);
       if (
         doneResult
-        && shouldReplaceResultImage(resultImageRef.current, doneResult)
+        && shouldReplaceResultImage(
+          resultImageRef.current,
+          doneResult,
+          resultImagePinnedRef.current,
+        )
       ) {
         dispatch({ type: "SHOW_RESULT", entry: doneResult });
         const seed = formSeedFromImage(doneResult.seed);

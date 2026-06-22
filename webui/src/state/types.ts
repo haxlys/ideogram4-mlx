@@ -121,7 +121,7 @@ export type AppAction =
   | { type: "SET_IMAGES"; entries: ImageEntry[] }
   | { type: "REMOVE_IMAGE"; imageId: number }
   | { type: "REMOVE_IMAGES_BY_PROMPT"; promptId: number }
-  | { type: "SHOW_RESULT"; entry: ImageEntry | null }
+  | { type: "SHOW_RESULT"; entry: ImageEntry | null; pinned?: boolean }
   | { type: "REFRESH_HISTORY" }
   | { type: "REFRESH_FAVORITES" };
 

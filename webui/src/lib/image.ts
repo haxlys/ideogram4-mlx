@@ -149,10 +149,12 @@ export function resolveHistoryResultEntry(options: {
 export function shouldReplaceResultImage(
   current: ImageEntry | null,
   next: ImageEntry | null,
+  pinned = false,
 ): boolean {
+  if (pinned) return false;
   if (next == null) return true;
   if (current == null) return true;
-  if (current.id === next.id) return true;
+  if (current.id === next.id) return false;
   if (current.prompt_id != null && current.prompt_id === next.prompt_id) {
     return next.id >= current.id;
   }

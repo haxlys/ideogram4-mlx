@@ -13,6 +13,7 @@ export interface AppState {
   images: ImageEntry[];
   selectedPreset: string | null;
   resultImage: ImageEntry | null;
+  resultImagePinned: boolean;
   selectedPromptId: number | null;
   historyRefresh: number;
   favoritesRefresh: number;
@@ -27,6 +28,7 @@ export const initialState: AppState = {
   images: [],
   selectedPreset: null,
   resultImage: null,
+  resultImagePinned: false,
   selectedPromptId: null,
   historyRefresh: 0,
   favoritesRefresh: 0,
@@ -70,7 +72,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "RESTORE_FORM": {
       const loaded = action.form;
       const selectedPromptId = action.promptId ?? null;
+      const promptChanged = selectedPromptId !== state.selectedPromptId;
       const resultImage = selectedPromptId == null ? null : state.resultImage;
+      const resultImagePinned = selectedPromptId == null || promptChanged
+        ? false
+        : state.resultImagePinned;
       if (loaded.rawJson && loaded.rawJson.trim()) {
         try {
           const caption = JSON.parse(loaded.rawJson);
@@ -82,6 +88,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
             form: { ...loaded, ...formPatch },
             selectedPromptId,
             resultImage,
+            resultImagePinned,
           };
         } catch { /* keep form as-is */ }
       }
@@ -91,6 +98,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         form: { ...loaded, rawJson: syncedJson },
         selectedPromptId,
         resultImage,
+        resultImagePinned,
       };
     }
 
@@ -204,6 +212,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         images: state.images.filter((img) => img.id !== action.imageId),
         resultImage: state.resultImage?.id === action.imageId ? null : state.resultImage,
+        resultImagePinned: state.resultImage?.id === action.imageId
+          ? false
+          : state.resultImagePinned,
         genQueue: state.genQueue.map((job) =>
           job.result?.id === action.imageId ? { ...job, result: undefined } : job,
         ),
@@ -222,7 +233,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
 
     case "SHOW_RESULT":
-      return { ...state, resultImage: action.entry };
+      return {
+        ...state,
+        resultImage: action.entry,
+        resultImagePinned: action.entry == null ? false : (action.pinned ?? false),
+      };
 
     case "REFRESH_HISTORY":
       return { ...state, historyRefresh: state.historyRefresh + 1 };

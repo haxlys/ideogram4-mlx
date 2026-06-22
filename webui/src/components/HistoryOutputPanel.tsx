@@ -35,7 +35,7 @@ export function HistoryOutputPanel() {
   const activeImage = state.resultImage;
 
   const handleSelect = useCallback((image: HistoryImageItem) => {
-    dispatch({ type: "SHOW_RESULT", entry: image });
+    dispatch({ type: "SHOW_RESULT", entry: image, pinned: true });
     const seed = formSeedFromImage(image.seed);
     if (seed) {
       dispatch({ type: "SET_FORM", form: { seed } });

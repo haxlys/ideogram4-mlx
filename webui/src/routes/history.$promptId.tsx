@@ -21,6 +21,7 @@ function HistoryPage() {
   const { state, dispatch } = useAppState();
   const genQueueRef = useRef(state.genQueue);
   const resultImageRef = useRef(state.resultImage);
+  const resultImagePinnedRef = useRef(state.resultImagePinned);
 
   useEffect(() => {
     genQueueRef.current = state.genQueue;
@@ -29,6 +30,10 @@ function HistoryPage() {
   useEffect(() => {
     resultImageRef.current = state.resultImage;
   }, [state.resultImage]);
+
+  useEffect(() => {
+    resultImagePinnedRef.current = state.resultImagePinned;
+  }, [state.resultImagePinned]);
 
   useEffect(() => {
     const id = Number(promptId);
@@ -65,7 +70,11 @@ function HistoryPage() {
         });
         if (
           nextResult
-          && shouldReplaceResultImage(resultImageRef.current, nextResult)
+          && shouldReplaceResultImage(
+            resultImageRef.current,
+            nextResult,
+            resultImagePinnedRef.current,
+          )
         ) {
           dispatch({ type: "SHOW_RESULT", entry: nextResult });
           const seed = formSeedFromImage(nextResult.seed);
@@ -92,7 +101,11 @@ function HistoryPage() {
     const doneResult = findLatestDoneJobResult(state.genQueue, id);
     if (
       doneResult
-      && shouldReplaceResultImage(resultImageRef.current, doneResult)
+      && shouldReplaceResultImage(
+        resultImageRef.current,
+        doneResult,
+        resultImagePinnedRef.current,
+      )
     ) {
       dispatch({ type: "SHOW_RESULT", entry: doneResult });
       const seed = formSeedFromImage(doneResult.seed);
