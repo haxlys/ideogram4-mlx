@@ -90,13 +90,13 @@ export function HistoryOutputPanel() {
   return (
     <>
       <section
-        aria-label="Output"
+        aria-label="Result"
         className="overflow-hidden rounded-2xl border border-border bg-card shadow-card"
       >
         <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2.5">
           <div>
             <h2 className="flex items-center gap-2 text-body-sm font-semibold text-foreground">
-              Output
+              Result
               {images.length > 0 && (
                 <Badge variant="secondary" className="h-5 px-1.5 text-caption tabular-nums">
                   {images.length}
@@ -104,7 +104,7 @@ export function HistoryOutputPanel() {
               )}
             </h2>
             <p className="mt-0.5 text-caption text-muted-foreground">
-              Preview and browse versions for this entry
+              Preview and browse generated versions
             </p>
           </div>
           {activeImage && (

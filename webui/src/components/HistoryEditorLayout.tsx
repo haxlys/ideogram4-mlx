@@ -18,15 +18,15 @@ export function HistoryEditorLayout() {
           <GenerationActions className="w-full sm:w-auto" />
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] lg:items-start">
-          <div className="min-w-0 space-y-6">
+        <div className="flex flex-col gap-6 md:flex-row md:items-start">
+          <div className="min-w-0 flex-1 space-y-6">
             <GenerationSettings />
             <PromptSection />
           </div>
 
-          <div className="min-w-0 lg:sticky lg:top-[var(--header-height)] lg:max-h-[calc(100dvh-var(--header-height))] lg:overflow-y-auto lg:py-1">
+          <aside className="min-w-0 w-full md:w-[min(100%,380px)] md:shrink-0 md:sticky md:top-[var(--header-height)] md:max-h-[calc(100dvh-var(--header-height))] md:overflow-y-auto md:py-1">
             <HistoryOutputPanel />
-          </div>
+          </aside>
         </div>
       </div>
     </ScrollArea>
