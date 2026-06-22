@@ -29,6 +29,9 @@ logs/
 .vscode/
 .idea/
 
+# Generated frontend temp files
+webui/.tanstack/
+
 # macOS
 .DS_Store
 

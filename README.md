@@ -16,10 +16,11 @@ WebUI (:5173) -> FastAPI (:8000) -> Model daemon (:8001) -> mflux/MLX
 - `server/mlx_runtime.py` resolves the Hugging Face or local MLX model path,
   loads the mflux Ideogram 4 runtime, tracks MLX memory, and runs image
   generation.
-- `server/main.py` is the WebUI gateway and persistence layer. It stores prompts
-  and generated images, runs Magic Prompt, and proxies generation work to the
-  daemon.
-- `webui/` is the React/Vite interface.
+- `server/main.py` is the WebUI gateway and persistence layer. It stores prompts,
+  generated images, favorites, the last form state, and prompt-image history
+  links; runs Magic Prompt; and proxies generation work to the daemon.
+- `webui/` is the React/Vite/TanStack Router interface with editor, gallery,
+  history, favorites, and a client-side generation queue.
 - `ideogram4_mlx.py` is the CLI. It uses the daemon by default and can run
   direct local MLX generation with `--daemon off`.
 
@@ -47,9 +48,13 @@ cd webui && pnpm install
 ```
 
 `server/requirements.txt` pins `mflux` to PR #445 commit
-`8d80b9cb53688b62a2f814604b9f8b48987c5acd` because the MLXBits q8 loader is not
-in the latest stable mflux release yet. The rollback branch for the previous
-PyTorch/MPS implementation is `legacy/pytorch-mps`.
+`8d80b9cb53688b62a2f814604b9f8b48987c5acd`. As of 2026-06-22, stable mflux
+`0.18.0` includes Ideogram 4 FP8 support, but the mlx-forge checkpoint loader
+needed for `MLXBits/ideogram-4-mlx-q8` is still pending in PR #445. Keep the pin
+until a stable mflux release can load a repo containing `split_model.json`.
+
+The rollback branch for the previous PyTorch/MPS implementation is
+`legacy/pytorch-mps`.
 
 ## Model Access
 
@@ -69,9 +74,10 @@ The model root must contain `split_model.json`. If `IDEOGRAM4_MODEL_PATH` is not
 set, the daemon downloads/verifies the Hugging Face repo with
 `huggingface_hub.snapshot_download`.
 
-The MLXBits conversion is distributed under the original Ideogram 4
-Non-Commercial Model Agreement. Check the model card before using it outside
-personal or research workflows.
+The MLXBits conversion is gated on Hugging Face and distributed under the
+original Ideogram 4 Non-Commercial Model Agreement. Accept the model gate and
+authenticate with `hf auth login` or `HF_TOKEN` before first download. Check the
+model card before using it outside personal or research workflows.
 
 ## Run
 
@@ -105,16 +111,43 @@ python3 ideogram4_mlx.py --daemon off --prompt-file examples/caption.json --out 
 | `GET` | `/api/model/status` | Daemon state, backend, model repo/path, quantization, MLX memory |
 | `POST` | `/api/model/load` | Load the MLX model |
 | `POST` | `/api/model/unload` | Unload the MLX model |
+| `GET` | `/api/magic-prompt/status` | Magic Prompt provider/configuration health |
+| `POST` | `/api/magic-prompt` | Expand text and optional reference images into a structured caption |
+| `POST` | `/api/verify` | Validate a structured caption through mflux's verifier when available |
 | `POST` | `/api/generate` | Start one local generation job |
 | `GET` | `/api/status/{task_id}` | Poll generation progress |
 | `POST` | `/api/cancel/{task_id}` | Request cancellation |
 | `GET` | `/api/lora/status` | Local LoRA files and active stack |
+| `GET` | `/api/lora/presets` | Built-in downloadable LoRA presets and installed state |
+| `POST` | `/api/lora/download` | Start a preset LoRA download task |
+| `GET` | `/api/lora/download/{task_id}` | Poll LoRA download progress |
 | `POST` | `/api/lora/apply` | Reload model with a local LoRA stack |
 | `POST` | `/api/lora/remove` | Reload model without LoRA |
+| `GET` | `/api/lora/operation/{task_id}` | Poll LoRA apply/remove progress |
+| `GET` | `/api/images` | List generated images, optionally filtered by prompt/history link state |
+| `GET` | `/api/images/stats` | Count total, linked, orphan, and dangling image records |
+| `DELETE` | `/api/images/orphans` | Delete generated image files with no prompt history link |
+| `DELETE` | `/api/images/{image_id}` | Delete one generated image record and file |
+| `PATCH` | `/api/images/{image_id}` | Link an image to an existing prompt history row |
+| `POST` | `/api/images/{image_id}/attach-history` | Create or attach prompt history for an image |
+| `GET` | `/api/images/{image_id}/file` | Serve one generated image file |
+| `GET` | `/api/prompts` | List saved prompt history rows |
+| `GET` | `/api/prompts/{prompt_id}` | Fetch one prompt history row |
+| `POST` | `/api/prompts` | Save a prompt history row |
+| `DELETE` | `/api/prompts/{prompt_id}` | Delete a prompt history row |
+| `GET` | `/api/favorites` | List favorited images/prompts |
+| `GET` | `/api/favorites/{favorite_id}` | Fetch one favorite |
+| `POST` | `/api/favorites` | Favorite an image or prompt |
+| `DELETE` | `/api/favorites/images/{image_id}` | Remove favorite by image |
+| `DELETE` | `/api/favorites/prompts/{prompt_id}` | Remove favorite by prompt |
+| `GET` | `/api/form` | Load the last saved editor form |
+| `POST` | `/api/form` | Save the last editor form |
 
-Generation is single-slot. A second concurrent generation returns HTTP `409`.
-LoRA apply/remove also uses the same model operation lock because mflux applies
-LoRA at model load time.
+Generation is daemon single-slot. The WebUI can queue, reorder, cancel, and
+retry multiple client-side jobs, but only one job is submitted to the daemon at
+a time. Direct concurrent `/api/generate` calls return HTTP `409`. LoRA
+download/apply/remove operations also use model operation locks because mflux
+applies LoRA at model load time.
 
 All MLX/mflux runtime calls are routed through a single worker thread inside the
 model daemon. This avoids MLX thread-local stream failures when a LoRA-loaded
@@ -170,8 +203,24 @@ not a cross-machine guarantee.
 
 `POST /api/magic-prompt` expands a plain idea into the structured JSON caption
 Ideogram 4 expects. It uses the existing OpenAI-compatible provider abstraction
-and local llama.cpp option. Caption validation now uses mflux's Ideogram 4
-caption verifier instead of the old `ideogram4` Python package.
+and local llama.cpp option. `POST /api/magic-prompt` accepts text plus up to
+`IDEOGRAM4_MAGIC_PROMPT_MAX_IMAGES` base64 reference images; text-only requests
+still work when no multimodal local server is configured. Caption validation
+uses mflux's Ideogram 4 caption verifier instead of the old `ideogram4` Python
+package.
+
+## WebUI State
+
+The sidebar contains prompt history, gallery, and favorites routes. The editor
+autosaves the latest form through `/api/form`; generation results are persisted
+under `IDEOGRAM4_OUTPUT_DIR`; and prompt/image links are stored in SQLite so
+history pages can show their generated images. A "new seed" or regenerate action
+adds a client-side queue job, then the queue submits to the daemon when the
+single generation slot is free.
+
+`webui/src/routeTree.gen.ts` is generated by TanStack Router. Temporary
+`webui/.tanstack/tmp/` files may appear during dev/build runs and should not be
+treated as source changes.
 
 ## Verification
 
