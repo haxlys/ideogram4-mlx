@@ -74,7 +74,7 @@ function SidebarNavLinks() {
 }
 
 function RootLayout() {
-  const { state, dispatch } = useAppState();
+  const { dispatch } = useAppState();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const navigate = useNavigate();
 
@@ -84,12 +84,6 @@ function RootLayout() {
     dispatch({ type: "RESTORE_FORM", form: DEFAULT_FORM, promptId: undefined });
     navigate({ to: "/" });
   };
-
-  const queuePadding = state.genQueue.length > 0
-    ? state.genQueueExpanded
-      ? "pb-[min(45dvh,360px)]"
-      : "pb-11"
-    : "";
 
   return (
     <FavoritesProvider>
@@ -183,7 +177,7 @@ function RootLayout() {
               <main
                 id="main-content"
                 tabIndex={-1}
-                className={cn("flex-1 flex flex-col min-h-0 overflow-hidden", queuePadding)}
+                className="flex-1 flex flex-col min-h-0 overflow-hidden"
               >
                 <Outlet />
               </main>
