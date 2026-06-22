@@ -1,4 +1,8 @@
+import json
+import math
+import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from config import DB_PATH as _CFG_DB_PATH
@@ -8,6 +12,21 @@ from config import DB_QUERY_LIMIT as _CFG_QUERY_LIMIT
 DB_PATH: Path = _CFG_DB_PATH
 OUTPUT_DIR: Path = _CFG_OUTPUT_DIR
 IMAGE_SUFFIXES = {".png", ".webp", ".jpeg", ".jpg"}
+HISTORY_PREVIEW_GRACE_MS = 120_000
+
+
+def _parse_server_timestamp(value: str) -> float:
+    trimmed = value.strip()
+    if not trimmed:
+        return math.nan
+    if re.search(r"[zZ]|[+-]\d{2}:\d{2}$", trimmed):
+        dt = datetime.fromisoformat(trimmed.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp() * 1000
+    normalized = trimmed if "T" in trimmed else trimmed.replace(" ", "T")
+    dt = datetime.fromisoformat(f"{normalized}+00:00")
+    return dt.timestamp() * 1000
 
 
 def _conn() -> sqlite3.Connection:
@@ -75,6 +94,52 @@ def _public_image_row(row: sqlite3.Row) -> dict:
     return data
 
 
+def _migrate_favorites_to_image_only() -> None:
+    """Collapse legacy (kind, target_id) favorites into image_id rows."""
+    conn = _conn()
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(favorites)").fetchall()}
+        if not cols or "image_id" in cols:
+            return
+        if "kind" not in cols:
+            return
+
+        conn.executescript("""
+            CREATE TABLE favorites_v2 (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                image_id    INTEGER NOT NULL UNIQUE
+            );
+        """)
+
+        conn.execute("""
+            INSERT OR IGNORE INTO favorites_v2 (id, created_at, image_id)
+            SELECT f.id, f.created_at, f.target_id
+            FROM favorites f
+            WHERE f.kind = 'image'
+              AND EXISTS (SELECT 1 FROM images i WHERE i.id = f.target_id)
+        """)
+
+        conn.execute("""
+            INSERT OR IGNORE INTO favorites_v2 (created_at, image_id)
+            SELECT f.created_at,
+                   (SELECT i.id FROM images i
+                    WHERE i.prompt_id = f.target_id
+                    ORDER BY i.created_at DESC LIMIT 1)
+            FROM favorites f
+            WHERE f.kind = 'prompt'
+              AND EXISTS (
+                SELECT 1 FROM images i WHERE i.prompt_id = f.target_id
+              )
+        """)
+
+        conn.execute("DROP TABLE favorites")
+        conn.execute("ALTER TABLE favorites_v2 RENAME TO favorites")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _migrate_legacy_image_paths() -> int:
     conn = _conn()
     rows = conn.execute("SELECT id, file_path FROM images WHERE instr(file_path, '/') > 0").fetchall()
@@ -117,7 +182,8 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
             file_path   TEXT NOT NULL,
             prompt_id   INTEGER,
             lora_name   TEXT,
-            lora_strength REAL
+            lora_strength REAL,
+            lora_stack_json TEXT
         );
 
         CREATE TABLE IF NOT EXISTS prompts (
@@ -130,6 +196,12 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
         CREATE TABLE IF NOT EXISTS last_form (
             id          INTEGER PRIMARY KEY CHECK (id = 1),
             form_json   TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS favorites (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            image_id    INTEGER NOT NULL UNIQUE
         );
     """)
     try:
@@ -144,17 +216,33 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
         conn.execute("ALTER TABLE images ADD COLUMN lora_strength REAL")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE images ADD COLUMN lora_stack_json TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
     _migrate_legacy_image_paths()
+    _migrate_favorites_to_image_only()
 
 
-def add_image(hld: str, width: int, height: int, preset: str, seed: int, file_path: str, prompt_id: int | None = None, lora_name: str | None = None, lora_strength: float | None = None) -> int:
+def add_image(
+    hld: str,
+    width: int,
+    height: int,
+    preset: str,
+    seed: int,
+    file_path: str,
+    prompt_id: int | None = None,
+    lora_name: str | None = None,
+    lora_strength: float | None = None,
+    lora_stack_json: str | None = None,
+) -> int:
     stored_path = normalize_image_path_for_storage(file_path)
     conn = _conn()
     cur = conn.execute(
-        "INSERT INTO images (hld, width, height, preset, seed, file_path, prompt_id, lora_name, lora_strength) VALUES (?,?,?,?,?,?,?,?,?)",
-        (hld, width, height, preset, seed, stored_path, prompt_id, lora_name, lora_strength),
+        "INSERT INTO images (hld, width, height, preset, seed, file_path, prompt_id, lora_name, lora_strength, lora_stack_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (hld, width, height, preset, seed, stored_path, prompt_id, lora_name, lora_strength, lora_stack_json),
     )
     conn.commit()
     image_id = cur.lastrowid
@@ -162,18 +250,94 @@ def add_image(hld: str, width: int, height: int, preset: str, seed: int, file_pa
     return image_id
 
 
-def get_images(limit: int = _CFG_QUERY_LIMIT, prompt_id: int | None = None) -> list[dict]:
+_LINKED_WHERE = """
+    prompt_id IS NOT NULL
+    AND EXISTS (SELECT 1 FROM prompts p WHERE p.id = images.prompt_id)
+"""
+
+_ORPHAN_WHERE = """
+    prompt_id IS NULL
+    OR NOT EXISTS (SELECT 1 FROM prompts p WHERE p.id = images.prompt_id)
+"""
+
+
+def _images_query(sql: str, params: list, limit: int) -> tuple[str, list]:
+    if limit > 0:
+        return f"{sql} LIMIT ?", [*params, limit]
+    return sql, params
+
+
+def get_images(
+    limit: int = _CFG_QUERY_LIMIT,
+    prompt_id: int | None = None,
+    *,
+    linked_only: bool = False,
+    orphans_only: bool = False,
+) -> list[dict]:
     conn = _conn()
     if prompt_id is not None:
-        rows = conn.execute(
-            "SELECT * FROM images WHERE prompt_id = ? ORDER BY created_at DESC LIMIT ?", (prompt_id, limit)
-        ).fetchall()
+        sql, params = _images_query(
+            "SELECT * FROM images WHERE prompt_id = ? ORDER BY created_at DESC",
+            [prompt_id],
+            limit,
+        )
+    elif orphans_only:
+        sql, params = _images_query(
+            f"SELECT * FROM images WHERE {_ORPHAN_WHERE} ORDER BY created_at DESC",
+            [],
+            limit,
+        )
+    elif linked_only:
+        sql, params = _images_query(
+            f"SELECT * FROM images WHERE {_LINKED_WHERE} ORDER BY created_at DESC",
+            [],
+            limit,
+        )
     else:
-        rows = conn.execute(
-            "SELECT * FROM images ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        sql, params = _images_query(
+            "SELECT * FROM images ORDER BY created_at DESC",
+            [],
+            limit,
+        )
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [_public_image_row(r) for r in rows]
+
+
+def get_image_stats() -> dict:
+    conn = _conn()
+    row = conn.execute(
+        f"""
+        SELECT
+            (SELECT COUNT(*) FROM images) AS total,
+            (SELECT COUNT(*) FROM images WHERE {_LINKED_WHERE}) AS linked,
+            (SELECT COUNT(*) FROM images WHERE prompt_id IS NULL) AS null_prompt_id,
+            (SELECT COUNT(*) FROM images WHERE prompt_id IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM prompts p WHERE p.id = images.prompt_id)) AS dangling
+        """
+    ).fetchone()
+    conn.close()
+    orphans = int(row["null_prompt_id"]) + int(row["dangling"])
+    return {
+        "total": int(row["total"]),
+        "linked": int(row["linked"]),
+        "orphans": orphans,
+        "null_prompt_id": int(row["null_prompt_id"]),
+        "dangling": int(row["dangling"]),
+    }
+
+
+def delete_orphan_images() -> int:
+    conn = _conn()
+    rows = conn.execute(f"SELECT id, file_path FROM images WHERE {_ORPHAN_WHERE}").fetchall()
+    for row in rows:
+        conn.execute("DELETE FROM favorites WHERE image_id = ?", (row["id"],))
+        _delete_image_file(row["file_path"])
+    conn.execute(f"DELETE FROM images WHERE {_ORPHAN_WHERE}")
+    deleted = conn.total_changes
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 def get_image(image_id: int) -> dict | None:
@@ -191,6 +355,82 @@ def get_image_by_file_path(file_path: str | Path) -> dict | None:
     return _public_image_row(row) if row else None
 
 
+def _link_image_prompt_conn(
+    conn: sqlite3.Connection,
+    image_id: int,
+    prompt_id: int,
+) -> bool:
+    prompt = conn.execute(
+        "SELECT id, saved_at FROM prompts WHERE id = ?", (prompt_id,)
+    ).fetchone()
+    if not prompt:
+        return False
+    row = conn.execute("SELECT id FROM images WHERE id = ?", (image_id,)).fetchone()
+    if not row:
+        return False
+    conn.execute(
+        "UPDATE images SET prompt_id = NULL WHERE prompt_id = ? AND id != ? AND created_at < ?",
+        (prompt_id, image_id, prompt["saved_at"]),
+    )
+    conn.execute("UPDATE images SET prompt_id = ? WHERE id = ?", (prompt_id, image_id))
+    return True
+
+
+def link_image_prompt(image_id: int, prompt_id: int) -> bool:
+    conn = _conn()
+    try:
+        ok = _link_image_prompt_conn(conn, image_id, prompt_id)
+        if ok:
+            conn.commit()
+        return ok
+    finally:
+        conn.close()
+
+
+def attach_image_history(
+    image_id: int,
+    *,
+    hld: str,
+    form_json: str,
+    prompt_id: int | None = None,
+) -> dict | None:
+    """Atomically create or update a prompt and link an image."""
+    conn = _conn()
+    try:
+        img = conn.execute("SELECT id FROM images WHERE id = ?", (image_id,)).fetchone()
+        if not img:
+            return None
+
+        if prompt_id is None:
+            cur = conn.execute(
+                "INSERT INTO prompts (hld, form_json) VALUES (?,?)",
+                (hld, form_json),
+            )
+            prompt_id = int(cur.lastrowid)
+        else:
+            existing = conn.execute(
+                "SELECT id FROM prompts WHERE id = ?", (prompt_id,)
+            ).fetchone()
+            if not existing:
+                return None
+            conn.execute(
+                "UPDATE prompts SET hld = ?, form_json = ? WHERE id = ?",
+                (hld, form_json, prompt_id),
+            )
+
+        if not _link_image_prompt_conn(conn, image_id, prompt_id):
+            conn.rollback()
+            return None
+
+        conn.commit()
+        return {"ok": True, "prompt_id": prompt_id}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def delete_image(image_id: int) -> bool:
     conn = _conn()
     row = conn.execute("SELECT file_path FROM images WHERE id = ?", (image_id,)).fetchone()
@@ -198,6 +438,7 @@ def delete_image(image_id: int) -> bool:
         conn.close()
         return False
     fp = row["file_path"]
+    conn.execute("DELETE FROM favorites WHERE image_id = ?", (image_id,))
     conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
     conn.commit()
     conn.close()
@@ -245,9 +486,16 @@ def get_prompt(prompt_id: int) -> dict | None:
 
 def delete_prompt(prompt_id: int) -> bool:
     conn = _conn()
-    rows = conn.execute("SELECT file_path FROM images WHERE prompt_id = ?", (prompt_id,)).fetchall()
-    for r in rows:
-        _delete_image_file(r["file_path"])
+    image_rows = conn.execute(
+        "SELECT id, file_path FROM images WHERE prompt_id = ?", (prompt_id,)
+    ).fetchall()
+    for row in image_rows:
+        conn.execute("DELETE FROM favorites WHERE image_id = ?", (row["id"],))
+        _delete_image_file(row["file_path"])
+    conn.execute(
+        "DELETE FROM favorites WHERE image_id IN (SELECT id FROM images WHERE prompt_id = ?)",
+        (prompt_id,),
+    )
     conn.execute("DELETE FROM images WHERE prompt_id = ?", (prompt_id,))
     conn.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
     conn.commit()
@@ -264,6 +512,156 @@ def save_last_form(form_json: str):
     )
     conn.commit()
     conn.close()
+
+
+def _prompt_preview_image_id(prompt_id: int) -> int | None:
+    """Match webui pickHistoryPreviewImage: latest eligible image for a history row."""
+    prompt = get_prompt(prompt_id)
+    if prompt is None:
+        return None
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, created_at FROM images WHERE prompt_id = ?",
+        (prompt_id,),
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return None
+
+    saved_ms = _parse_server_timestamp(prompt["saved_at"])
+    if not math.isfinite(saved_ms):
+        return int(rows[0]["id"])
+
+    cutoff_ms = saved_ms - HISTORY_PREVIEW_GRACE_MS
+    eligible: list[sqlite3.Row] = []
+    for row in rows:
+        created_ms = _parse_server_timestamp(row["created_at"])
+        if math.isfinite(created_ms) and created_ms >= cutoff_ms:
+            eligible.append(row)
+
+    if not eligible:
+        return None
+
+    preview = eligible[0]
+    preview_ms = _parse_server_timestamp(preview["created_at"])
+    for row in eligible[1:]:
+        created_ms = _parse_server_timestamp(row["created_at"])
+        if math.isfinite(created_ms) and created_ms > preview_ms:
+            preview = row
+            preview_ms = created_ms
+    return int(preview["id"])
+
+
+def _favorite_row_from_image(image: dict) -> dict:
+    raw_prompt_id = image.get("prompt_id")
+    preview_prompt_id: int | None = None
+    if raw_prompt_id is not None and get_prompt(raw_prompt_id) is not None:
+        preview_id = _prompt_preview_image_id(raw_prompt_id)
+        if preview_id is not None and preview_id == image["id"]:
+            preview_prompt_id = raw_prompt_id
+    return {
+        "image_id": image["id"],
+        "hld": image["hld"],
+        "preset": image["preset"],
+        "w": image["width"],
+        "h": image["height"],
+        "prompt_id": preview_prompt_id,
+        "history_linked": preview_prompt_id is not None,
+    }
+
+
+def _resolve_favorite_image_id(
+    *,
+    image_id: int | None = None,
+    prompt_id: int | None = None,
+) -> int | None:
+    if image_id is not None:
+        return image_id if get_image(image_id) is not None else None
+    if prompt_id is not None:
+        if get_prompt(prompt_id) is None:
+            return None
+        return _prompt_preview_image_id(prompt_id)
+    return None
+
+
+def _enrich_favorite(row: sqlite3.Row) -> dict | None:
+    image = get_image(row["image_id"])
+    if image is None:
+        return None
+    data = dict(row)
+    data.update(_favorite_row_from_image(image))
+    return data
+
+
+def get_favorites() -> list[dict]:
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT * FROM favorites ORDER BY created_at DESC"
+    ).fetchall()
+    conn.close()
+    items: list[dict] = []
+    for row in rows:
+        enriched = _enrich_favorite(row)
+        if enriched is not None:
+            items.append(enriched)
+    return items
+
+
+def get_favorite(favorite_id: int) -> dict | None:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM favorites WHERE id = ?", (favorite_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return _enrich_favorite(row)
+
+
+def add_favorite(
+    *,
+    image_id: int | None = None,
+    prompt_id: int | None = None,
+) -> dict | None:
+    resolved_image_id = _resolve_favorite_image_id(
+        image_id=image_id,
+        prompt_id=prompt_id,
+    )
+    if resolved_image_id is None:
+        return None
+    conn = _conn()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO favorites (image_id) VALUES (?)",
+            (resolved_image_id,),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM favorites WHERE image_id = ?",
+            (resolved_image_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return _enrich_favorite(row)
+
+
+def remove_favorite(
+    *,
+    image_id: int | None = None,
+    prompt_id: int | None = None,
+) -> bool:
+    resolved_image_id = _resolve_favorite_image_id(
+        image_id=image_id,
+        prompt_id=prompt_id,
+    )
+    if resolved_image_id is None:
+        return False
+    conn = _conn()
+    conn.execute("DELETE FROM favorites WHERE image_id = ?", (resolved_image_id,))
+    conn.commit()
+    deleted = conn.total_changes > 0
+    conn.close()
+    return deleted
 
 
 def get_last_form() -> str | None:

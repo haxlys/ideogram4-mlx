@@ -1,19 +1,58 @@
 import { useState } from "react";
-import { createRootRoute, Link, Outlet, useNavigate } from "@tanstack/react-router";
+import { createRootRoute, Link, Outlet, useMatchRoute, useNavigate } from "@tanstack/react-router";
 import { useAppState } from "@/state/context";
 import { DEFAULT_FORM } from "@/state/types";
 import { ModelPanel } from "@/components/ModelPanel";
 import { GenerationQueuePanel } from "@/components/GenerationQueuePanel";
 import { useGenerationQueue } from "@/hooks/useGenerationQueue";
 import { PromptHistory } from "@/components/PromptHistory";
+import { FavoritesProvider, useFavorites } from "@/state/favoritesContext";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import { PanelLeftClose, PanelLeft, Plus, History, LayoutGrid } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { PanelLeftClose, PanelLeft, Plus, History, LayoutGrid, Star } from "lucide-react";
 
 export const Route = createRootRoute({
   component: RootLayout,
 });
+
+function SidebarNavLinks() {
+  const { entries } = useFavorites();
+  const matchRoute = useMatchRoute();
+  const favoritesActive = Boolean(
+    matchRoute({ to: "/favorites" })
+    || matchRoute({ to: "/favorites/$favoriteId" }),
+  );
+
+  return (
+    <>
+      <Link
+        to="/gallery"
+        className="flex items-center h-8 px-3 text-xs font-medium rounded-md transition-colors hover:bg-muted text-foreground no-underline [&.active]:bg-muted"
+      >
+        <LayoutGrid className="size-3.5 mr-2" />
+        Gallery
+      </Link>
+      <Link
+        to="/favorites"
+        className={cn(
+          "flex items-center h-8 px-3 text-xs font-medium rounded-md transition-colors hover:bg-muted text-foreground no-underline",
+          favoritesActive && "bg-muted",
+        )}
+      >
+        <Star className="size-3.5 mr-2" />
+        <span className="flex-1">Favorites</span>
+        {entries.length > 0 && (
+          <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px] tabular-nums">
+            {entries.length}
+          </Badge>
+        )}
+      </Link>
+    </>
+  );
+}
 
 function RootLayout() {
   const { dispatch } = useAppState();
@@ -28,6 +67,7 @@ function RootLayout() {
   };
 
   return (
+    <FavoritesProvider>
     <TooltipProvider>
       <div className="flex h-dvh bg-background text-foreground">
         <aside className={"flex flex-col shrink-0 border-r border-border bg-background transition-all duration-200 " + (sidebarCollapsed ? "w-0 overflow-hidden border-r-0" : "w-64")}>
@@ -67,13 +107,7 @@ function RootLayout() {
               <Plus className="size-3.5 mr-2" />
               Create New Image
             </Button>
-            <Link
-              to="/gallery"
-              className="flex items-center h-8 px-3 text-xs font-medium rounded-md transition-colors hover:bg-muted text-foreground no-underline [&.active]:bg-muted"
-            >
-              <LayoutGrid className="size-3.5 mr-2" />
-              Gallery
-            </Link>
+            <SidebarNavLinks />
           </div>
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex items-center px-3 py-2">
@@ -111,5 +145,6 @@ function RootLayout() {
         </div>
       </div>
     </TooltipProvider>
+    </FavoritesProvider>
   );
 }

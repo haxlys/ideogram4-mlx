@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ApiError, cancelTask, getTaskStatus, submitGenerate } from "@/api/client";
 import { useAppState } from "@/state/context";
+import { invalidatePromptsCache, promptPayloadFromForm } from "@/state/storage";
 import type { AppAction, GenJob, ImageEntry } from "@/state/types";
+import { imageEntryFromTask } from "@/lib/image";
+import {
+  attachHistoryWithRetry,
+  historyLinkErrorDetail,
+  type AttachHistoryPayload,
+} from "@/lib/historyLink";
 import { toast } from "sonner";
 
 const POLL_INTERVAL_MS = 2000;
@@ -44,6 +51,23 @@ function clearQueueRetry(retryTimeoutRef: MutableRefObject<ReturnType<typeof set
 
 function isAbortStatus(status: GenJob["status"] | undefined) {
   return status === "cancelled" || status === "cancelling";
+}
+
+function linkedEntryFromTask(
+  data: { image: NonNullable<Awaited<ReturnType<typeof getTaskStatus>>["image"]> },
+  promptId: number,
+): ImageEntry {
+  return imageEntryFromTask({
+    id: data.image!.id ?? Date.now(),
+    url: data.image!.url ?? "",
+    hld: data.image!.hld ?? "",
+    time: data.image!.time ?? new Date().toLocaleTimeString(),
+    prompt_id: promptId,
+    historyLinked: true,
+    lora_name: data.image!.lora_name,
+    lora_strength: data.image!.lora_strength,
+    applied_loras: data.image!.applied_loras,
+  });
 }
 
 export function useGenerationQueue() {
@@ -127,46 +151,157 @@ export function useGenerationQueue() {
             stopPolling();
             processingRef.current = false;
 
-            const entry: ImageEntry = {
-              id: data.image.id ?? Date.now(),
-              url: data.image.url ?? "",
-              hld: data.image.hld ?? "",
-              time: data.image.time ?? new Date().toLocaleTimeString(),
-              prompt_id: data.image.prompt_id,
-            };
+            const reusePromptId = currentJob?.promptId;
+            const createdNewPrompt = reusePromptId == null;
+            let promptId: number | undefined;
+            let imageLinked = false;
+            let historyLinkFailed = false;
+            let linkError: string | undefined;
+            let pendingLink: GenJob["pendingLink"];
+            let attachPayload: AttachHistoryPayload | undefined;
+
+            if (currentJob?.formSnapshot && data.image.id != null) {
+              const imageId = data.image.id;
+              attachPayload = {
+                promptId: reusePromptId,
+                ...promptPayloadFromForm(currentJob.formSnapshot),
+              };
+              try {
+                const attached = await attachHistoryWithRetry(imageId, attachPayload);
+                promptId = attached.prompt_id;
+                imageLinked = true;
+              } catch (linkErr) {
+                historyLinkFailed = true;
+                linkError = historyLinkErrorDetail(linkErr);
+                pendingLink = {
+                  imageId,
+                  promptId: reusePromptId,
+                  hld: attachPayload.hld,
+                  formJson: attachPayload.formJson,
+                };
+              }
+            }
+
+            const entry = imageLinked && promptId != null
+              ? linkedEntryFromTask({ image: data.image }, promptId)
+              : imageEntryFromTask({
+                  id: data.image.id ?? Date.now(),
+                  url: data.image.url ?? "",
+                  hld: data.image.hld ?? "",
+                  time: data.image.time ?? new Date().toLocaleTimeString(),
+                  prompt_id: null,
+                  historyLinked: false,
+                  lora_name: data.image.lora_name,
+                  lora_strength: data.image.lora_strength,
+                  applied_loras: data.image.applied_loras,
+                });
 
             dispatch({
               type: "UPDATE_JOB",
               id: jobId,
               patch: {
                 status: "done",
-                msg: "Done",
+                msg: historyLinkFailed ? "History link failed" : "Done",
                 progress: 100,
                 result: entry,
+                promptId,
+                historyLinkFailed: historyLinkFailed || undefined,
+                linkError,
+                pendingLink,
               },
             });
-            dispatch({ type: "ADD_IMAGE", entry });
+            if (imageLinked) {
+              dispatch({ type: "ADD_IMAGE", entry });
+            }
+            invalidatePromptsCache();
             dispatch({ type: "REFRESH_HISTORY" });
 
             const latest = stateRef.current;
-            if (latest.selectedPromptId === entry.prompt_id) {
-              dispatch({ type: "SHOW_RESULT", entry });
+            if (imageLinked && promptId != null) {
+              if (latest.selectedPromptId === promptId) {
+                dispatch({ type: "SHOW_RESULT", entry });
+              }
+              if (createdNewPrompt) {
+                navigate({
+                  to: "/history/$promptId",
+                  params: { promptId: String(promptId) },
+                });
+              }
             }
 
             const label = latest.genQueue.find((job) => job.id === jobId)?.label ?? "Image";
-            toast.success(`"${label}" is ready`, {
-              action: {
-                label: "View",
-                onClick: () => {
-                  if (entry.prompt_id != null) {
+            if (historyLinkFailed) {
+              toast.error(
+                `"${label}" generated but history link failed (${linkError}).`,
+                {
+                  duration: 12_000,
+                  action: pendingLink
+                    ? {
+                        label: "Retry",
+                        onClick: () => {
+                          void attachHistoryWithRetry(pendingLink!.imageId, {
+                            promptId: pendingLink!.promptId,
+                            hld: pendingLink!.hld,
+                            formJson: pendingLink!.formJson,
+                          })
+                            .then((attached) => {
+                              const linkedEntry: ImageEntry = {
+                                ...entry,
+                                prompt_id: attached.prompt_id,
+                                historyLinked: true,
+                              };
+                              dispatch({
+                                type: "UPDATE_JOB",
+                                id: jobId,
+                                patch: {
+                                  msg: "Done",
+                                  result: linkedEntry,
+                                  promptId: attached.prompt_id,
+                                  historyLinkFailed: undefined,
+                                  linkError: undefined,
+                                  pendingLink: undefined,
+                                },
+                              });
+                              dispatch({ type: "ADD_IMAGE", entry: linkedEntry });
+                              invalidatePromptsCache();
+                              dispatch({ type: "REFRESH_HISTORY" });
+                              if (latest.selectedPromptId === attached.prompt_id) {
+                                dispatch({ type: "SHOW_RESULT", entry: linkedEntry });
+                              }
+                              if (createdNewPrompt) {
+                                navigate({
+                                  to: "/history/$promptId",
+                                  params: { promptId: String(attached.prompt_id) },
+                                });
+                              }
+                              toast.success("Image linked to history.");
+                            })
+                            .catch((retryError) => {
+                              toast.error(
+                                `Link retry failed (${historyLinkErrorDetail(retryError)}).`,
+                              );
+                            });
+                        },
+                      }
+                    : undefined,
+                },
+              );
+            } else if (imageLinked && promptId != null) {
+              const readyLabel = currentJob?.historyLinkMode === "regenerate"
+                ? `"${label}" regenerated`
+                : `"${label}" saved to history`;
+              toast.success(readyLabel, {
+                action: {
+                  label: "View",
+                  onClick: () => {
                     navigate({
                       to: "/history/$promptId",
-                      params: { promptId: String(entry.prompt_id) },
+                      params: { promptId: String(promptId) },
                     });
-                  }
+                  },
                 },
-              },
-            });
+              });
+            }
             return;
           }
 

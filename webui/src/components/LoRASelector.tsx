@@ -15,7 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Download, Layers2, Sparkles, X } from "lucide-react";
+import { Layers2, Sparkles, X } from "lucide-react";
+import { friendlyLoraName } from "@/lib/lora";
 
 interface AppliedLora { name: string; strength: number; format?: string; }
 interface LoraPresetEntry {
@@ -88,14 +89,6 @@ function loraUiReducer(state: LoraUiState, action: LoraUiAction): LoraUiState {
 
 function stackKey(loras: Array<{ name: string; strength: number }>) {
   return loras.map((l) => `${l.name}:${l.strength}`).join("|");
-}
-
-function friendlyName(name: string) {
-  return name
-    .replace("Realism_Engine_Ideogram_", "Realism ")
-    .replace("Realism_Engine_", "Realism ")
-    .replace(".safetensors", "")
-    .replace("zjourneyv", "zjourney V");
 }
 
 function presetSize(preset: LoraPreset) {
@@ -262,7 +255,7 @@ export function LoRASelector() {
         {applied && (
           <Badge variant="secondary" className="max-w-[180px] px-1.5 py-0 text-[10px]">
             {loading && loadingPreset == null ? <Spinner className="size-2.5 animate-spin mr-1 inline-block" /> : null}
-            <span className="truncate">{appliedLoras.map((lora) => friendlyName(lora.name)).join(" + ")}</span>
+            <span className="truncate">{appliedLoras.map((lora) => friendlyLoraName(lora.name)).join(" + ")}</span>
           </Badge>
         )}
         {applied && (
@@ -289,7 +282,7 @@ export function LoRASelector() {
               key={preset.id}
               variant={active ? "default" : "secondary"}
               size="sm"
-              className="h-8 w-full justify-between text-[11px] font-medium"
+              className="h-auto min-h-8 w-full justify-between gap-2 py-1.5 text-[11px] font-medium whitespace-normal"
               onClick={() => {
                 if (!preset.installed) {
                   handleDownloadPreset(preset);
@@ -303,16 +296,15 @@ export function LoRASelector() {
               }}
               disabled={loading || (downloadingPreset != null && !downloading) || (preset.installed && state.modelState !== "loaded")}
             >
-              {(loading && loadingPreset === preset.id) || downloading ? (
-                <Spinner className="size-3 animate-spin" />
-              ) : !preset.installed ? (
-                <Download className="size-3" />
-              ) : (
-                <Sparkles className="size-3" />
-              )}
-              <span className="truncate">{preset.label}</span>
-              <span className="ml-1 shrink-0 text-[10px] text-muted-foreground">
-                {!preset.installed ? "Download" : size ?? preset.loras.map((lora) => lora.strength).join("+")}
+              <span className="min-w-0 flex-1 text-left leading-snug">{preset.label}</span>
+              <span className="shrink-0 self-center text-[10px] text-muted-foreground">
+                {(loading && loadingPreset === preset.id) || downloading ? (
+                  <Spinner className="size-3 animate-spin" />
+                ) : !preset.installed ? (
+                  "Download"
+                ) : (
+                  size ?? preset.loras.map((lora) => lora.strength).join("+")
+                )}
               </span>
             </Button>
           );
@@ -334,7 +326,7 @@ export function LoRASelector() {
         <Layers2 className="size-3 text-muted-foreground" />
         {appliedLoras.length > 0 ? appliedLoras.map((lora) => (
           <Badge key={`${lora.name}-${lora.strength}`} variant="outline" className="h-4 px-1.5 text-[10px]">
-            {friendlyName(lora.name)} {lora.strength}
+            {friendlyLoraName(lora.name)} {lora.strength}
           </Badge>
         )) : (
           <Badge variant="outline" className="h-4 px-1.5 text-[10px]">none</Badge>

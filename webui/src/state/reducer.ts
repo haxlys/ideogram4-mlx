@@ -15,6 +15,7 @@ export interface AppState {
   resultImage: ImageEntry | null;
   selectedPromptId: number | null;
   historyRefresh: number;
+  favoritesRefresh: number;
 }
 
 export const initialState: AppState = {
@@ -28,6 +29,7 @@ export const initialState: AppState = {
   resultImage: null,
   selectedPromptId: null,
   historyRefresh: 0,
+  favoritesRefresh: 0,
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -176,19 +178,37 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, genQueueExpanded: action.expanded };
 
     case "ADD_IMAGE":
+      if (action.entry.prompt_id == null) return state;
       return {
         ...state,
-        images: [action.entry, ...state.images].slice(0, 20),
+        images: [action.entry, ...state.images.filter((img) => img.id !== action.entry.id)],
       };
 
     case "SET_IMAGES":
       return { ...state, images: action.entries };
+
+    case "REMOVE_IMAGE":
+      return {
+        ...state,
+        images: state.images.filter((img) => img.id !== action.imageId),
+        resultImage: state.resultImage?.id === action.imageId ? null : state.resultImage,
+      };
+
+    case "REMOVE_IMAGES_BY_PROMPT":
+      return {
+        ...state,
+        images: state.images.filter((img) => img.prompt_id !== action.promptId),
+        resultImage: state.resultImage?.prompt_id === action.promptId ? null : state.resultImage,
+      };
 
     case "SHOW_RESULT":
       return { ...state, resultImage: action.entry };
 
     case "REFRESH_HISTORY":
       return { ...state, historyRefresh: state.historyRefresh + 1 };
+
+    case "REFRESH_FAVORITES":
+      return { ...state, favoritesRefresh: state.favoritesRefresh + 1 };
 
     default:
       return state;

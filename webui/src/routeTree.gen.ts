@@ -10,12 +10,20 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as GalleryRouteImport } from './routes/gallery'
+import { Route as FavoritesRouteImport } from './routes/favorites'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FavoritesIndexRouteImport } from './routes/favorites.index'
 import { Route as HistoryPromptIdRouteImport } from './routes/history.$promptId'
+import { Route as FavoritesFavoriteIdRouteImport } from './routes/favorites.$favoriteId'
 
 const GalleryRoute = GalleryRouteImport.update({
   id: '/gallery',
   path: '/gallery',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FavoritesRoute = FavoritesRouteImport.update({
+  id: '/favorites',
+  path: '/favorites',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -23,38 +31,75 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FavoritesIndexRoute = FavoritesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => FavoritesRoute,
+} as any)
 const HistoryPromptIdRoute = HistoryPromptIdRouteImport.update({
   id: '/history/$promptId',
   path: '/history/$promptId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FavoritesFavoriteIdRoute = FavoritesFavoriteIdRouteImport.update({
+  id: '/$favoriteId',
+  path: '/$favoriteId',
+  getParentRoute: () => FavoritesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/favorites': typeof FavoritesRouteWithChildren
   '/gallery': typeof GalleryRoute
+  '/favorites/$favoriteId': typeof FavoritesFavoriteIdRoute
   '/history/$promptId': typeof HistoryPromptIdRoute
+  '/favorites/': typeof FavoritesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/gallery': typeof GalleryRoute
+  '/favorites/$favoriteId': typeof FavoritesFavoriteIdRoute
   '/history/$promptId': typeof HistoryPromptIdRoute
+  '/favorites': typeof FavoritesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/favorites': typeof FavoritesRouteWithChildren
   '/gallery': typeof GalleryRoute
+  '/favorites/$favoriteId': typeof FavoritesFavoriteIdRoute
   '/history/$promptId': typeof HistoryPromptIdRoute
+  '/favorites/': typeof FavoritesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/gallery' | '/history/$promptId'
+  fullPaths:
+    | '/'
+    | '/favorites'
+    | '/gallery'
+    | '/favorites/$favoriteId'
+    | '/history/$promptId'
+    | '/favorites/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/gallery' | '/history/$promptId'
-  id: '__root__' | '/' | '/gallery' | '/history/$promptId'
+  to:
+    | '/'
+    | '/gallery'
+    | '/favorites/$favoriteId'
+    | '/history/$promptId'
+    | '/favorites'
+  id:
+    | '__root__'
+    | '/'
+    | '/favorites'
+    | '/gallery'
+    | '/favorites/$favoriteId'
+    | '/history/$promptId'
+    | '/favorites/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FavoritesRoute: typeof FavoritesRouteWithChildren
   GalleryRoute: typeof GalleryRoute
   HistoryPromptIdRoute: typeof HistoryPromptIdRoute
 }
@@ -68,12 +113,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GalleryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/favorites': {
+      id: '/favorites'
+      path: '/favorites'
+      fullPath: '/favorites'
+      preLoaderRoute: typeof FavoritesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/favorites/': {
+      id: '/favorites/'
+      path: '/'
+      fullPath: '/favorites/'
+      preLoaderRoute: typeof FavoritesIndexRouteImport
+      parentRoute: typeof FavoritesRoute
     }
     '/history/$promptId': {
       id: '/history/$promptId'
@@ -82,11 +141,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HistoryPromptIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/favorites/$favoriteId': {
+      id: '/favorites/$favoriteId'
+      path: '/$favoriteId'
+      fullPath: '/favorites/$favoriteId'
+      preLoaderRoute: typeof FavoritesFavoriteIdRouteImport
+      parentRoute: typeof FavoritesRoute
+    }
   }
 }
 
+interface FavoritesRouteChildren {
+  FavoritesFavoriteIdRoute: typeof FavoritesFavoriteIdRoute
+  FavoritesIndexRoute: typeof FavoritesIndexRoute
+}
+
+const FavoritesRouteChildren: FavoritesRouteChildren = {
+  FavoritesFavoriteIdRoute: FavoritesFavoriteIdRoute,
+  FavoritesIndexRoute: FavoritesIndexRoute,
+}
+
+const FavoritesRouteWithChildren = FavoritesRoute._addFileChildren(
+  FavoritesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FavoritesRoute: FavoritesRouteWithChildren,
   GalleryRoute: GalleryRoute,
   HistoryPromptIdRoute: HistoryPromptIdRoute,
 }

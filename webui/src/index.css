@@ -76,22 +76,3 @@
   }
 }
 
-.masonry-gallery {
-  columns: 4 240px;
-  gap: 0.75rem;
-}
-
-.masonry-gallery > * {
-  break-inside: avoid;
-  margin-bottom: 0.75rem;
-  display: inline-flex;
-  flex-direction: column;
-  width: 100%;
-}
-
-@media (max-width: 900px) {
-  .masonry-gallery { columns: 3 200px; }
-}
-@media (max-width: 640px) {
-  .masonry-gallery { columns: 2 160px; }
-}

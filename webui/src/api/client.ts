@@ -42,12 +42,20 @@ interface GenerateResponse {
   task_id: string;
 }
 
+interface AppliedLoraImageRef {
+  name: string;
+  strength: number;
+}
+
 interface TaskImage {
   id: number;
   url: string;
   hld: string;
   time: string;
   prompt_id?: number | null;
+  lora_name?: string | null;
+  lora_strength?: number | null;
+  applied_loras?: AppliedLoraImageRef[] | null;
 }
 
 interface TaskStatusResponse {
@@ -189,10 +197,132 @@ export async function magicPrompt(prompt: string, width: number, height: number,
   });
 }
 
-interface ImageRow { id: number; created_at: string; hld: string; width: number; height: number; preset: string; seed: number; file_path: string; prompt_id?: number | null; }
+interface ImageRow {
+  id: number;
+  created_at: string;
+  hld: string;
+  width: number;
+  height: number;
+  preset: string;
+  seed: number;
+  file_path: string;
+  prompt_id?: number | null;
+  lora_name?: string | null;
+  lora_strength?: number | null;
+  lora_stack_json?: string | null;
+}
 interface PromptRow { id: number; saved_at: string; hld: string; form_json: string; }
 
-export async function getImages(promptId?: number) { return request<ImageRow[]>(`/api/images${promptId != null ? `?prompt_id=${promptId}` : ''}`); }
+export interface ImageQuery {
+  promptId?: number;
+  linkedOnly?: boolean;
+  orphansOnly?: boolean;
+  /** 0 = no limit; omit for server default (IDEOGRAM4_DB_QUERY_LIMIT). */
+  limit?: number;
+}
+
+export interface ImageStats {
+  total: number;
+  linked: number;
+  orphans: number;
+  null_prompt_id: number;
+  dangling: number;
+}
+
+function imageQueryString(query?: ImageQuery): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  if (query.promptId != null) params.set("prompt_id", String(query.promptId));
+  if (query.linkedOnly) params.set("linked_only", "1");
+  if (query.orphansOnly) params.set("orphans_only", "1");
+  if (query.limit != null) params.set("limit", String(query.limit));
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function getImages(query?: ImageQuery) {
+  return request<ImageRow[]>(`/api/images${imageQueryString(query)}`);
+}
+export async function getImageStats() { return request<ImageStats>("/api/images/stats"); }
+export async function deleteImageApi(imageId: number) {
+  return request<{ ok: boolean }>(`/api/images/${imageId}`, { method: "DELETE" });
+}
+export async function linkImagePromptApi(imageId: number, promptId: number) {
+  return request<{ ok: boolean; prompt_id: number }>(`/api/images/${imageId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt_id: promptId }),
+  });
+}
+
+export interface AttachHistoryRequest {
+  promptId?: number;
+  hld: string;
+  formJson: string;
+}
+
+export async function attachImageHistoryApi(imageId: number, body: AttachHistoryRequest) {
+  return request<{ ok: boolean; prompt_id: number }>(`/api/images/${imageId}/attach-history`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt_id: body.promptId ?? null,
+      hld: body.hld,
+      form_json: body.formJson,
+    }),
+  });
+}
+export async function deleteOrphanImagesApi() {
+  return request<{ ok: boolean; deleted: number }>("/api/images/orphans", { method: "DELETE" });
+}
+
+export interface FavoriteRow {
+  id: number;
+  image_id: number;
+  created_at: string;
+  hld: string;
+  preset?: string;
+  w?: number;
+  h?: number;
+  prompt_id?: number | null;
+  history_linked?: boolean;
+}
+
+export interface FavoriteRequest {
+  image_id?: number;
+  prompt_id?: number;
+}
+
+export async function getFavorites() {
+  return request<FavoriteRow[]>("/api/favorites");
+}
+
+export async function getFavoriteApi(favoriteId: number) {
+  return request<FavoriteRow>(`/api/favorites/${favoriteId}`);
+}
+
+export async function addFavoriteApi(body: FavoriteRequest) {
+  return request<FavoriteRow>("/api/favorites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function removeFavoriteApi(body: FavoriteRequest) {
+  let result: { ok: boolean };
+  if (body.image_id != null) {
+    result = await request<{ ok: boolean }>(`/api/favorites/images/${body.image_id}`, { method: "DELETE" });
+  } else if (body.prompt_id != null) {
+    result = await request<{ ok: boolean }>(`/api/favorites/prompts/${body.prompt_id}`, { method: "DELETE" });
+  } else {
+    return { ok: false };
+  }
+  if (!result.ok) {
+    throw new Error("Favorite not found");
+  }
+  return result;
+}
 export async function getPrompts() { return request<PromptRow[]>('/api/prompts'); }
 export async function savePromptApi(hld: string, formJson: string) { return request<{id:number}>('/api/prompts', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({hld, form_json: formJson}) }); }
 export async function deletePromptApi(promptId: number) { return request<{ok:boolean}>(`/api/prompts/${promptId}`, { method: 'DELETE' }); }

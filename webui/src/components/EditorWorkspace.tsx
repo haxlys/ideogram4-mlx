@@ -1,25 +1,18 @@
-import { useEffect } from "react";
-import { createFileRoute } from "@tanstack/react-router";
 import { useAppState } from "@/state/context";
 import { useFormAutosave } from "@/hooks/useFormAutosave";
-import { loadLastForm } from "@/state/storage";
 import { CaptionEditor } from "@/components/CaptionEditor";
 import { GenerationActions } from "@/components/GenerationActions";
 import { GenerationSettings } from "@/components/GenerationSettings";
+import { HistoryImagesPanel } from "@/components/HistoryImagesPanel";
+import { ResultImagePanel } from "@/components/ResultImagePanel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-export const Route = createFileRoute("/")({
-  component: EditorPage,
-});
-
-function EditorPage() {
+export function EditorWorkspace() {
   const { state, dispatch } = useAppState();
+
   useFormAutosave(state.form);
 
-  useEffect(() => {
-    const saved = loadLastForm();
-    dispatch({ type: "RESTORE_FORM", form: saved });
-  }, [dispatch]);
+  const resultImage = state.resultImage;
 
   return (
     <ScrollArea className="flex-1">
@@ -31,6 +24,15 @@ function EditorPage() {
             <GenerationSettings />
 
             <GenerationActions />
+
+            {resultImage && (
+              <ResultImagePanel
+                image={resultImage}
+                onDismiss={() => dispatch({ type: "SHOW_RESULT", entry: null })}
+              />
+            )}
+
+            <HistoryImagesPanel />
           </div>
         </div>
       </main>

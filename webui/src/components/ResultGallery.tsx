@@ -1,65 +1,243 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAppState } from "@/state/context";
-import { invalidateImageCache, loadImages } from "@/state/storage";
 import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
+  deleteAllOrphanImages,
+  deleteImage,
+  invalidateImageCache,
+  loadLinkedImages,
+  loadOrphanImages,
+} from "@/state/storage";
+import { getImageStats, type ImageStats } from "@/api/client";
+import { ImagePreviewLightbox } from "@/components/ImagePreviewLightbox";
+import { MasonryGallery } from "@/components/MasonryGallery";
+import { PreviewableImage } from "@/components/PreviewableImage";
+import { Button } from "@/components/ui/button";
+import type { ImageEntry } from "@/state/types";
+import { FavoriteButton } from "@/components/FavoriteButton";
+import { AlertTriangle, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+
+function GalleryGrid({
+  images,
+  onPreview,
+}: {
+  images: ImageEntry[];
+  onPreview: (img: ImageEntry) => void;
+}) {
+  return (
+    <MasonryGallery>
+      {images.map((img) => (
+        <div key={img.id} className="group relative">
+          <PreviewableImage
+            src={img.url}
+            alt={img.hld?.slice(0, 60) ?? "Generated image"}
+            onPreview={() => onPreview(img)}
+            className="rounded-lg border border-border"
+            imageClassName="h-auto"
+            caption={img.hld?.slice(0, 32)}
+            hint={`Preview ${img.hld?.slice(0, 40) ?? "image"}`}
+          />
+          <FavoriteButton
+            imageId={img.id}
+            className="absolute top-2 right-2 bg-background/80 text-amber-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+            size="icon-sm"
+          />
+        </div>
+      ))}
+    </MasonryGallery>
+  );
+}
 
 export function ResultGallery() {
   const { state, dispatch } = useAppState();
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<ImageEntry | null>(null);
+  const [orphans, setOrphans] = useState<ImageEntry[]>([]);
+  const [stats, setStats] = useState<ImageStats | null>(null);
+  const [orphansOpen, setOrphansOpen] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [orphanLoadIssue, setOrphanLoadIssue] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     invalidateImageCache();
-    loadImages().then((saved) => {
-      dispatch({ type: "SET_IMAGES", entries: saved });
+    Promise.all([
+      loadLinkedImages(),
+      loadOrphanImages(),
+      getImageStats().catch(() => null),
+    ]).then(([linked, orphanRows, imageStats]) => {
+      if (cancelled) return;
+      const linkedIds = new Set(linked.map((img) => img.id));
+      const orphansOnly = orphanRows.filter((img) => !linkedIds.has(img.id));
+      dispatch({ type: "SET_IMAGES", entries: linked });
+      setOrphans(orphansOnly);
+      setStats(imageStats);
+      setOrphanLoadIssue(
+        imageStats != null
+        && imageStats.orphans > 0
+        && orphansOnly.length === 0,
+      );
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, state.historyRefresh, state.favoritesRefresh]);
+
+  const handleDeleteOrphan = useCallback(async (imageId: number) => {
+    if (!confirm("Delete this unlinked image? This cannot be undone.")) return;
+    try {
+      await deleteImage(imageId);
+      dispatch({ type: "REMOVE_IMAGE", imageId });
+      setOrphans((prev) => prev.filter((img) => img.id !== imageId));
+      setStats((prev) =>
+        prev
+          ? { ...prev, total: prev.total - 1, orphans: Math.max(0, prev.orphans - 1) }
+          : prev,
+      );
+      toast.success("Unlinked image deleted");
+    } catch {
+      toast.error("Failed to delete image");
+    }
   }, [dispatch]);
 
-  if (state.images.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-card/30 px-4 py-10 text-center text-[13px] text-muted-foreground">
-        Generated images will appear here.
-      </div>
-    );
-  }
+  const handleDeleteAllOrphans = useCallback(async () => {
+    const count = stats?.orphans ?? orphans.length;
+    if (count === 0) return;
+    if (!confirm(`Delete all ${count} unlinked image(s)? This cannot be undone.`)) return;
+    setCleaning(true);
+    try {
+      const deleted = await deleteAllOrphanImages();
+      setOrphans([]);
+      setStats((prev) =>
+        prev
+          ? {
+              ...prev,
+              total: prev.total - deleted,
+              orphans: 0,
+              null_prompt_id: 0,
+              dangling: 0,
+            }
+          : prev,
+      );
+      toast.success(`Deleted ${deleted} unlinked image(s)`);
+    } catch {
+      toast.error("Failed to delete unlinked images");
+    } finally {
+      setCleaning(false);
+    }
+  }, [orphans.length, stats?.orphans]);
+
+  const orphanCount = stats?.orphans ?? orphans.length;
 
   return (
     <>
-      <div className="masonry-gallery">
-        {state.images.map((img) => (
-          <button
-            key={img.id}
-            type="button"
-            className="relative overflow-hidden rounded-lg border border-border bg-muted transition-opacity hover:opacity-80 w-full"
-            onClick={() => setPreviewUrl(img.url)}
-          >
-            <img
-              src={img.url}
-              alt={img.hld?.slice(0, 60) ?? ""}
-              className="w-full h-auto"
-              loading="lazy"
-            />
-            <div className="absolute bottom-0 left-0 right-0 truncate bg-black/60 px-2 py-1 text-[11px] text-white">
-              {img.hld?.slice(0, 32) ?? ""}
-            </div>
-          </button>
-        ))}
-      </div>
+      {state.images.length === 0 ? (
+        <div className="rounded-lg border border-border bg-card/30 px-4 py-10 text-center text-[13px] text-muted-foreground">
+          Generated images linked to history will appear here.
+        </div>
+      ) : (
+        <GalleryGrid images={state.images} onPreview={setPreviewImage} />
+      )}
 
-      <Dialog open={!!previewUrl} onOpenChange={() => setPreviewUrl(null)}>
-        <DialogContent className="max-w-[95vw] w-auto border-border p-2 sm:max-w-[95vw]">
-          {previewUrl && (
-            <img
-              src={previewUrl}
-              alt="Preview"
-              className="max-h-[90vh] max-w-full rounded object-contain"
-              style={{ width: "auto" }}
-            />
+      {orphanCount > 0 && (
+        <section className="mt-8 rounded-lg border border-amber-500/25 bg-amber-500/5">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-4 py-3 text-left"
+            onClick={() => setOrphansOpen((open) => !open)}
+          >
+            {orphansOpen ? (
+              <ChevronDown className="size-4 shrink-0 text-amber-600" />
+            ) : (
+              <ChevronRight className="size-4 shrink-0 text-amber-600" />
+            )}
+            <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-foreground">
+                Unlinked images ({orphanCount})
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Not connected to a history entry
+                {stats != null && stats.null_prompt_id > 0 && stats.dangling > 0
+                  ? ` — ${stats.null_prompt_id} without prompt, ${stats.dangling} stale link`
+                  : stats != null && stats.null_prompt_id > 0
+                    ? ` — ${stats.null_prompt_id} without prompt`
+                    : stats != null && stats.dangling > 0
+                      ? ` — ${stats.dangling} stale link`
+                      : ""}
+              </p>
+              {orphanLoadIssue && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  Backend may need a restart to load the full unlinked list. Run{" "}
+                  <code className="rounded bg-amber-500/10 px-1 py-0.5 text-[10px]">./run.sh backend</code>.
+                </p>
+              )}
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="shrink-0"
+              disabled={cleaning}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleDeleteAllOrphans();
+              }}
+            >
+              <Trash2 className="size-3.5" />
+              Delete all
+            </Button>
+          </button>
+
+          {orphansOpen && (
+            <div className="border-t border-amber-500/20 px-4 pb-4 pt-3">
+              <MasonryGallery>
+                {orphans.map((img) => (
+                  <div key={img.id} className="group relative">
+                    <FavoriteButton
+                      imageId={img.id}
+                      className="absolute top-2 left-2 z-10 bg-background/80 text-amber-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                      size="icon-sm"
+                    />
+                    <PreviewableImage
+                      src={img.url}
+                      alt={img.hld?.slice(0, 60) ?? "Unlinked image"}
+                      onPreview={() => setPreviewImage(img)}
+                      className="rounded-lg border border-amber-500/30"
+                      imageClassName="h-auto"
+                      caption={
+                        img.prompt_id != null
+                          ? `Stale #${img.prompt_id}`
+                          : img.hld?.slice(0, 32)
+                      }
+                      hint={
+                        img.prompt_id != null
+                          ? `Unlinked image (stale prompt #${img.prompt_id})`
+                          : "Preview unlinked image"
+                      }
+                    />
+                    <Button
+                      variant="destructive"
+                      size="icon-xs"
+                      className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                      aria-label="Delete unlinked image"
+                      onClick={() => void handleDeleteOrphan(img.id)}
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
+                ))}
+              </MasonryGallery>
+            </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </section>
+      )}
+
+      <ImagePreviewLightbox
+        image={previewImage}
+        open={previewImage != null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewImage(null);
+        }}
+      />
     </>
   );
 }

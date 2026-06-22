@@ -32,12 +32,23 @@ export interface FormState {
   rawJson: string;
 }
 
+export interface AppliedLoraEntry {
+  name: string;
+  strength: number;
+}
+
 export interface ImageEntry {
   id: number;
   url: string;
   hld: string;
   time: string;
   prompt_id?: number | null;
+  seed?: number;
+  /** True when prompt_id references an existing history row. */
+  historyLinked?: boolean;
+  lora_name?: string | null;
+  lora_strength?: number | null;
+  applied_loras?: AppliedLoraEntry[] | null;
 }
 
 export type GenJobStatus =
@@ -50,9 +61,24 @@ export type GenJobStatus =
   | "error"
   | "cancelled";
 
+export interface PendingHistoryLink {
+  imageId: number;
+  /** When set, reuses an existing history row instead of creating a new one. */
+  promptId?: number;
+  hld: string;
+  formJson: string;
+}
+
+/** Whether a finished image updates an existing history row or creates a new one. */
+export type HistoryLinkMode = "regenerate" | "new";
+
 export interface GenJob {
   id: string;
-  promptId: number;
+  /** Target history row for regenerate jobs; omitted for new-history jobs until link completes. */
+  promptId?: number;
+  /** How this job should attach to history after generation. */
+  historyLinkMode: HistoryLinkMode;
+  formSnapshot: FormState;
   label: string;
   status: GenJobStatus;
   msg: string;
@@ -63,6 +89,10 @@ export interface GenJob {
   request: GenerateRequest;
   result?: ImageEntry;
   error?: string;
+  /** Image saved to gallery but PATCH link to history failed. */
+  historyLinkFailed?: boolean;
+  linkError?: string;
+  pendingLink?: PendingHistoryLink;
 }
 
 export const MAX_GEN_QUEUE_SIZE = 20;
@@ -81,7 +111,7 @@ export type AppAction =
   | { type: "REMOVE_ELEMENT"; index: number }
   | { type: "UPDATE_ELEMENT"; index: number; field: keyof FormElement; value: string }
   | { type: "ENQUEUE_JOB"; job: GenJob }
-  | { type: "UPDATE_JOB"; id: string; patch: Partial<Pick<GenJob, "status" | "msg" | "progress" | "totalSteps" | "taskId" | "result" | "error">> }
+  | { type: "UPDATE_JOB"; id: string; patch: Partial<Pick<GenJob, "status" | "msg" | "progress" | "totalSteps" | "taskId" | "result" | "error" | "promptId" | "historyLinkFailed" | "linkError" | "pendingLink">> }
   | { type: "REMOVE_JOB"; id: string }
   | { type: "REORDER_JOB"; id: string; direction: "up" | "down" }
   | { type: "CLEAR_QUEUED_JOBS" }
@@ -89,8 +119,11 @@ export type AppAction =
   | { type: "SET_QUEUE_EXPANDED"; expanded: boolean }
   | { type: "ADD_IMAGE"; entry: ImageEntry }
   | { type: "SET_IMAGES"; entries: ImageEntry[] }
+  | { type: "REMOVE_IMAGE"; imageId: number }
+  | { type: "REMOVE_IMAGES_BY_PROMPT"; promptId: number }
   | { type: "SHOW_RESULT"; entry: ImageEntry | null }
-  | { type: "REFRESH_HISTORY" };
+  | { type: "REFRESH_HISTORY" }
+  | { type: "REFRESH_FAVORITES" };
 
 export const DEFAULT_FORM: FormState = {
   hld: "",

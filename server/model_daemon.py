@@ -250,6 +250,7 @@ def _run_generate(task_id: str, req: GenerateRequest) -> None:
 
             lora_status = runtime.get_lora_status()
             lora_name = lora_status.get("applied")
+            applied_loras = lora_status.get("applied_loras") or []
             lora_strength = lora_status.get("strength") if lora_name else None
             filename = f"{task_id}.{fmt}"
             content_type = f"image/{'jpeg' if fmt == 'jpeg' else fmt}"
@@ -275,6 +276,7 @@ def _run_generate(task_id: str, req: GenerateRequest) -> None:
                     "quantization_bits": gen_meta.get("quantization_bits"),
                     "lora_name": lora_name,
                     "lora_strength": lora_strength,
+                    "applied_loras": applied_loras,
                 },
                 done_at=time.time(),
             )

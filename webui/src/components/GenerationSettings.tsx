@@ -1,3 +1,4 @@
+import { randomSeedString } from "@/lib/seed";
 import { useAppState } from "@/state/context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -235,7 +236,7 @@ export function GenerationSettings() {
               size="icon"
               className="shrink-0"
               onClick={() =>
-                dispatch({ type: "SET_FORM", form: { seed: String(Math.floor(Math.random() * 2**32)) } })
+                dispatch({ type: "SET_FORM", form: { seed: randomSeedString() } })
               }
               title="Random seed"
             >

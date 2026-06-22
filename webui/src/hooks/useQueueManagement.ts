@@ -1,7 +1,9 @@
 import { useCallback } from "react";
 import { cancelTask } from "@/api/client";
 import { useAppState } from "@/state/context";
+import { invalidatePromptsCache } from "@/state/storage";
 import type { GenJob } from "@/state/types";
+import { attachHistoryWithRetry, historyLinkErrorDetail } from "@/lib/historyLink";
 import { toast } from "sonner";
 
 function isFinishedStatus(status: GenJob["status"]) {
@@ -117,6 +119,63 @@ export function useQueueManagement() {
     [state.genQueue],
   );
 
+  const retryHistoryLink = useCallback(
+    async (job: GenJob) => {
+      const pending = job.pendingLink;
+      if (!pending || !job.result) return;
+
+      dispatch({
+        type: "UPDATE_JOB",
+        id: job.id,
+        patch: { msg: "Retrying history link…" },
+      });
+
+      try {
+        const attached = await attachHistoryWithRetry(pending.imageId, {
+          promptId: pending.promptId,
+          hld: pending.hld,
+          formJson: pending.formJson,
+        });
+        const linkedEntry = {
+          ...job.result,
+          prompt_id: attached.prompt_id,
+          historyLinked: true,
+        };
+        dispatch({
+          type: "UPDATE_JOB",
+          id: job.id,
+          patch: {
+            msg: "Done",
+            result: linkedEntry,
+            promptId: attached.prompt_id,
+            historyLinkFailed: undefined,
+            linkError: undefined,
+            pendingLink: undefined,
+          },
+        });
+        dispatch({ type: "ADD_IMAGE", entry: linkedEntry });
+        invalidatePromptsCache();
+        dispatch({ type: "REFRESH_HISTORY" });
+        if (state.selectedPromptId === attached.prompt_id) {
+          dispatch({ type: "SHOW_RESULT", entry: linkedEntry });
+        }
+        toast.success("Image linked to history.");
+      } catch (error) {
+        const detail = historyLinkErrorDetail(error);
+        dispatch({
+          type: "UPDATE_JOB",
+          id: job.id,
+          patch: {
+            msg: "History link failed",
+            linkError: detail,
+          },
+        });
+        toast.error(`Link retry failed (${detail}).`);
+      }
+    },
+    [dispatch, state.selectedPromptId],
+  );
+
   return {
     cancelJob,
     moveJobUp,
@@ -126,5 +185,6 @@ export function useQueueManagement() {
     cancelActive,
     canMoveUp,
     canMoveDown,
+    retryHistoryLink,
   };
 }

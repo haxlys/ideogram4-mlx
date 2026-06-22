@@ -13,7 +13,7 @@ import time
 import requests
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -27,9 +27,12 @@ from config import (
     MAGIC_PROMPT_MAX_CHARS, MAGIC_PROMPT_MAX_IMAGES, MAGIC_PROMPT_MAX_IMAGE_BYTES,
     MAX_FORM_JSON_BYTES,
     MODEL_DAEMON_URL, MODEL_DAEMON_TIMEOUT,
+    DB_QUERY_LIMIT,
 )
 from db import (
-    init_db, get_images, get_image, delete_image, get_prompts, save_prompt,
+    init_db, get_images, get_image, delete_image, delete_orphan_images, get_image_stats,
+    get_prompts, save_prompt, link_image_prompt, attach_image_history,
+    get_favorites, get_favorite, add_favorite, remove_favorite,
     delete_prompt, get_last_form, save_last_form, add_image, OUTPUT_DIR,
     get_prompt, resolve_image_path, get_image_by_file_path,
 )
@@ -119,6 +122,17 @@ def _daemon_json(method: str, path: str, *, json_body: object | None = None, tim
     return data
 
 
+def _parse_lora_stack(row: dict) -> list[dict] | None:
+    raw = row.get("lora_stack_json")
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
 def _task_image_from_row(row: dict, hld: str = "") -> dict:
     return {
         "id": row["id"],
@@ -126,6 +140,9 @@ def _task_image_from_row(row: dict, hld: str = "") -> dict:
         "hld": row.get("hld") or hld,
         "time": time.strftime("%H:%M:%S"),
         "prompt_id": row.get("prompt_id"),
+        "lora_name": row.get("lora_name"),
+        "lora_strength": row.get("lora_strength"),
+        "applied_loras": _parse_lora_stack(row),
     }
 
 
@@ -150,6 +167,8 @@ def _persist_daemon_artifact(task_id: str, meta: dict) -> dict:
     filepath = OUTPUT_DIR / filename
     filepath.write_bytes(resp.content)
 
+    applied_loras = meta.get("applied_loras")
+    lora_stack_json = json.dumps(applied_loras) if applied_loras else None
     image_id = add_image(
         str(meta.get("hld", "")),
         int(meta.get("width", 1024)),
@@ -160,6 +179,7 @@ def _persist_daemon_artifact(task_id: str, meta: dict) -> dict:
         meta.get("prompt_id"),
         meta.get("lora_name"),
         meta.get("lora_strength"),
+        lora_stack_json,
     )
     row = get_image(image_id) or {
         "id": image_id,
@@ -566,14 +586,92 @@ def serve_output(path: str):
 # ── Images API ────────────────────────────────────────────────────
 
 @app.get("/api/images")
-def api_get_images(prompt_id: int | None = None):
-    return get_images(prompt_id=prompt_id)
+def api_get_images(
+    prompt_id: int | None = None,
+    linked_only: bool = Query(False),
+    orphans_only: bool = Query(False),
+    limit: int | None = Query(default=None, ge=0),
+):
+    if linked_only and orphans_only:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "linked_only and orphans_only cannot both be set."},
+        )
+    effective_limit = DB_QUERY_LIMIT if limit is None else limit
+    return get_images(
+        limit=effective_limit,
+        prompt_id=prompt_id,
+        linked_only=linked_only,
+        orphans_only=orphans_only,
+    )
+
+
+@app.get("/api/images/stats")
+def api_image_stats():
+    return get_image_stats()
+
+
+@app.delete("/api/images/orphans")
+def api_delete_orphan_images():
+    deleted = delete_orphan_images()
+    logger.info("Deleted %s orphan image(s)", deleted)
+    return {"ok": True, "deleted": deleted}
 
 
 @app.delete("/api/images/{image_id}")
 def api_delete_image(image_id: int):
     ok = delete_image(image_id)
     return {"ok": ok}
+
+
+class ImageLinkPromptRequest(BaseModel):
+    prompt_id: int
+
+
+@app.patch("/api/images/{image_id}")
+def api_link_image_prompt(image_id: int, req: ImageLinkPromptRequest):
+    if get_prompt(req.prompt_id) is None:
+        return JSONResponse(status_code=404, content={"error": "Prompt not found."})
+    if get_image(image_id) is None:
+        return JSONResponse(status_code=404, content={"error": "Image not found."})
+    ok = link_image_prompt(image_id, req.prompt_id)
+    return {"ok": ok, "prompt_id": req.prompt_id}
+
+
+class AttachHistoryRequest(BaseModel):
+    hld: str = Field(default="", max_length=12000)
+    form_json: str = Field(max_length=MAX_FORM_JSON_BYTES)
+    prompt_id: int | None = None
+
+    @field_validator("form_json")
+    @classmethod
+    def validate_form_json(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > MAX_FORM_JSON_BYTES:
+            max_kb = MAX_FORM_JSON_BYTES / 1024
+            raise ValueError(f"form JSON must be {max_kb:.0f} KB or smaller")
+        json.loads(value)
+        return value
+
+
+@app.post("/api/images/{image_id}/attach-history")
+def api_attach_image_history(image_id: int, req: AttachHistoryRequest):
+    if get_image(image_id) is None:
+        return JSONResponse(status_code=404, content={"error": "Image not found."})
+    if req.prompt_id is not None and get_prompt(req.prompt_id) is None:
+        return JSONResponse(status_code=404, content={"error": "Prompt not found."})
+    try:
+        result = attach_image_history(
+            image_id,
+            hld=req.hld,
+            form_json=req.form_json,
+            prompt_id=req.prompt_id,
+        )
+    except Exception as e:
+        logger.exception("attach-history failed for image %s", image_id)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    if result is None:
+        return JSONResponse(status_code=500, content={"error": "Failed to attach image to history."})
+    return result
 
 
 @app.get("/api/images/{image_id}/file")
@@ -610,6 +708,54 @@ def api_save_prompt(body: PromptSaveRequest):
 @app.delete("/api/prompts/{prompt_id}")
 def api_delete_prompt(prompt_id: int):
     ok = delete_prompt(prompt_id)
+    return {"ok": ok}
+
+
+# ── Favorites API ─────────────────────────────────────────────────
+
+class FavoriteRequest(BaseModel):
+    image_id: int | None = None
+    prompt_id: int | None = None
+
+    @field_validator("prompt_id")
+    @classmethod
+    def validate_target(cls, _value: int | None, info) -> int | None:
+        image_id = info.data.get("image_id")
+        if image_id is None and _value is None:
+            raise ValueError("image_id or prompt_id is required")
+        return _value
+
+
+@app.get("/api/favorites")
+def api_get_favorites():
+    return get_favorites()
+
+
+@app.get("/api/favorites/{favorite_id}")
+def api_get_favorite(favorite_id: int):
+    row = get_favorite(favorite_id)
+    if row is None:
+        return JSONResponse(status_code=404, content={"error": "Favorite not found."})
+    return row
+
+
+@app.post("/api/favorites")
+def api_add_favorite(req: FavoriteRequest):
+    row = add_favorite(image_id=req.image_id, prompt_id=req.prompt_id)
+    if row is None:
+        return JSONResponse(status_code=404, content={"error": "Favorite target not found."})
+    return row
+
+
+@app.delete("/api/favorites/images/{image_id}")
+def api_remove_favorite_by_image(image_id: int):
+    ok = remove_favorite(image_id=image_id)
+    return {"ok": ok}
+
+
+@app.delete("/api/favorites/prompts/{prompt_id}")
+def api_remove_favorite_by_prompt(prompt_id: int):
+    ok = remove_favorite(prompt_id=prompt_id)
     return {"ok": ok}
 
 

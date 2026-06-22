@@ -1,11 +1,17 @@
 import { useCallback } from "react";
 import { verifyCaption } from "@/api/client";
 import { useAppState } from "@/state/context";
-import { savePrompt } from "@/state/storage";
-import type { GenJob } from "@/state/types";
+import type { FormState, GenJob, HistoryLinkMode } from "@/state/types";
 import { MAX_GEN_QUEUE_SIZE } from "@/state/types";
+import { randomSeed } from "@/lib/seed";
 import { getCaptionForGeneration, getCaptionHld } from "@/validation/caption";
 import { toast } from "sonner";
+
+export interface EnqueueOptions {
+  historyLink: HistoryLinkMode;
+  /** When true, picks a fresh seed and updates the form before enqueueing. */
+  newSeed?: boolean;
+}
 
 function isPendingJob(job: GenJob) {
   return (
@@ -21,8 +27,9 @@ export function useEnqueueGeneration() {
 
   const hasPendingJobs = state.genQueue.some(isPendingJob);
   const canGenerate = state.modelState === "loaded";
+  const hasActiveHistory = state.selectedPromptId != null;
 
-  const enqueue = useCallback(async () => {
+  const enqueue = useCallback(async (options: EnqueueOptions) => {
     if (!canGenerate) {
       toast.error("Model is not loaded. Please load the model first.");
       return;
@@ -30,6 +37,13 @@ export function useEnqueueGeneration() {
 
     if (state.genQueue.length >= MAX_GEN_QUEUE_SIZE) {
       toast.error(`Queue is full (max ${MAX_GEN_QUEUE_SIZE}).`);
+      return;
+    }
+
+    const { historyLink, newSeed = false } = options;
+
+    if (historyLink === "regenerate" && state.selectedPromptId == null) {
+      toast.error("Open a history entry to regenerate.");
       return;
     }
 
@@ -56,17 +70,28 @@ export function useEnqueueGeneration() {
     }
 
     try {
-      const promptId = await savePrompt({
-        ...state.form,
-        hld: getCaptionHld(caption, state.form.hld),
-      });
+      const resolvedSeed = newSeed
+        ? randomSeed()
+        : state.form.seed.trim()
+          ? Number(state.form.seed)
+          : randomSeed();
+      const seedForForm = String(resolvedSeed);
 
-      dispatch({ type: "REFRESH_HISTORY" });
+      if (newSeed || !state.form.seed.trim()) {
+        dispatch({ type: "SET_FORM", form: { seed: seedForForm } });
+      }
 
       const label = getCaptionHld(caption, state.form.hld).trim() || "Untitled";
+      const formSnapshot: FormState = {
+        ...state.form,
+        seed: seedForForm,
+        hld: getCaptionHld(caption, state.form.hld),
+      };
       const job: GenJob = {
         id: crypto.randomUUID(),
-        promptId,
+        promptId: historyLink === "regenerate" ? state.selectedPromptId ?? undefined : undefined,
+        historyLinkMode: historyLink,
+        formSnapshot,
         label: label.length > 80 ? `${label.slice(0, 77)}…` : label,
         status: "queued",
         msg: "Queued",
@@ -78,23 +103,31 @@ export function useEnqueueGeneration() {
           width: state.form.w,
           height: state.form.h,
           preset: state.form.preset,
-          seed: Number(state.form.seed) || Math.floor(Math.random() * 2 ** 32),
+          seed: resolvedSeed,
           format: state.form.format,
-          prompt_id: promptId,
         },
       };
 
       dispatch({ type: "ENQUEUE_JOB", job });
-      toast.success(hasPendingJobs ? "Added to queue" : "Generation queued");
+
+      const actionLabel = historyLink === "regenerate" ? "Regeneration" : "New generation";
+      toast.success(hasPendingJobs ? `${actionLabel} added to queue` : `${actionLabel} queued`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
-  }, [canGenerate, dispatch, hasPendingJobs, state.form, state.genQueue.length]);
+  }, [
+    canGenerate,
+    dispatch,
+    hasPendingJobs,
+    state.form,
+    state.genQueue.length,
+    state.selectedPromptId,
+  ]);
 
   return {
     enqueue,
     canGenerate,
     hasPendingJobs,
-    buttonLabel: hasPendingJobs ? "Add to Queue" : "Generate",
+    hasActiveHistory,
   };
 }

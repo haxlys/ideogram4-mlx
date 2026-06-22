@@ -1,4 +1,4 @@
-import type { GenJob, GenJobStatus } from "./types";
+import type { FormState, GenJob, GenJobStatus } from "./types";
 
 const QUEUE_STATE_KEY = "ideogram4_gen_queue_state";
 
@@ -28,12 +28,15 @@ function isGenJobStatus(value: unknown): value is GenJobStatus {
   );
 }
 
+function isFormSnapshot(value: unknown): value is FormState {
+  return Boolean(value && typeof value === "object" && "w" in value && "h" in value);
+}
+
 function parseGenJob(raw: unknown): GenJob | null {
   if (!raw || typeof raw !== "object") return null;
   const job = raw as Partial<GenJob>;
   if (
     typeof job.id !== "string"
-    || typeof job.promptId !== "number"
     || typeof job.label !== "string"
     || !isGenJobStatus(job.status)
     || typeof job.msg !== "string"
@@ -45,7 +48,16 @@ function parseGenJob(raw: unknown): GenJob | null {
   ) {
     return null;
   }
-  return job as GenJob;
+  if (job.promptId != null && typeof job.promptId !== "number") return null;
+  if (!isFormSnapshot(job.formSnapshot)) return null;
+
+  const historyLinkMode = job.historyLinkMode === "regenerate" || job.historyLinkMode === "new"
+    ? job.historyLinkMode
+    : job.promptId != null
+      ? "regenerate"
+      : "new";
+
+  return { ...job, historyLinkMode } as GenJob;
 }
 
 function normalizeRestoredJob(job: GenJob): GenJob {
