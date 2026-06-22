@@ -34,9 +34,9 @@ export function MasonryGallery({ children }: { children: ReactNode }) {
   });
 
   return (
-    <div ref={ref} className="flex items-start gap-3">
+    <div ref={ref} className="flex items-start gap-2 sm:gap-3">
       {columns.map((column, index) => (
-        <div key={index} className="flex min-w-0 flex-1 flex-col gap-3">
+        <div key={index} className="flex min-w-0 flex-1 flex-col gap-2 sm:gap-3">
           {column}
         </div>
       ))}

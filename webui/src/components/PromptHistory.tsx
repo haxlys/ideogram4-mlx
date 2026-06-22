@@ -12,11 +12,7 @@ import { useFavorites } from "@/state/favoritesContext";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-const PRESET_LABELS: Record<string, string> = {
-  V4_TURBO_12: "Turbo",
-  V4_DEFAULT_20: "Default",
-  V4_QUALITY_48: "Quality",
-};
+import { presetShortLabel } from "@/lib/presetLabels";
 
 interface PromptHistoryProps {
   sidebar?: boolean;
@@ -38,8 +34,8 @@ function HistoryEntryRow({ entry, active, onRestore, onDelete }: HistoryEntryRow
       role="button"
       tabIndex={0}
       className={
-        "w-full rounded-lg px-3 py-2.5 text-left transition-colors group cursor-pointer "
-        + (active ? "bg-muted" : "hover:bg-muted")
+        "relative w-full rounded-lg px-3 py-2.5 text-left transition-colors group cursor-pointer "
+        + (active ? "bg-accent" : "hover:bg-accent/60")
       }
       onClick={() => onRestore(entry)}
       onKeyDown={(e) => {
@@ -49,14 +45,17 @@ function HistoryEntryRow({ entry, active, onRestore, onDelete }: HistoryEntryRow
         }
       }}
     >
+      {active && (
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-foreground" />
+      )}
       <div className="flex items-start gap-2">
         <div className="truncate flex-1 min-w-0">
-          <div className="truncate text-[13px] font-medium text-foreground">
+          <div className="truncate text-body-sm font-medium text-foreground">
             {entry.hld.slice(0, 60) || "(empty)"}
           </div>
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span className="rounded bg-muted px-1 py-0.5">
-              {PRESET_LABELS[entry.preset] ?? entry.preset}
+          <div className="mt-1 flex items-center gap-2 text-caption text-muted-foreground">
+            <span className="rounded-md bg-muted px-1.5 py-0.5">
+              {presetShortLabel(entry.preset)}
             </span>
             <span>{entry.w}×{entry.h}</span>
             <span>

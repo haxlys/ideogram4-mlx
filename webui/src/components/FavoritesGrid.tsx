@@ -9,11 +9,7 @@ import { favoriteThumbnailUrl } from "@/lib/favorites";
 import { useFavorites } from "@/state/favoritesContext";
 import { History, LayoutGrid, Star } from "lucide-react";
 
-const PRESET_LABELS: Record<string, string> = {
-  V4_TURBO_12: "Turbo",
-  V4_DEFAULT_20: "Default",
-  V4_QUALITY_48: "Quality",
-};
+import { presetShortLabel } from "@/lib/presetLabels";
 
 function aspectStyle(entry: FavoriteRow): CSSProperties | undefined {
   if (entry.w != null && entry.h != null && entry.w > 0 && entry.h > 0) {
@@ -25,7 +21,7 @@ function aspectStyle(entry: FavoriteRow): CSSProperties | undefined {
 function FavoriteCard({ entry }: { entry: FavoriteRow }) {
   const navigate = useNavigate();
   const thumbnail = favoriteThumbnailUrl(entry);
-  const presetLabel = entry.preset ? (PRESET_LABELS[entry.preset] ?? entry.preset) : null;
+  const presetLabel = entry.preset ? presetShortLabel(entry.preset) : null;
   const historyPromptId = entry.history_linked && entry.prompt_id != null
     ? entry.prompt_id
     : null;
@@ -57,7 +53,7 @@ function FavoriteCard({ entry }: { entry: FavoriteRow }) {
       <div
         role="button"
         tabIndex={0}
-        className="relative block w-full overflow-hidden rounded-lg border border-border bg-muted/20 text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="relative block w-full overflow-hidden rounded-xl border border-border bg-muted/20 text-left shadow-card transition-all hover:shadow-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         style={aspectStyle(entry)}
         onClick={openFavorite}
         onKeyDown={handleCardKeyDown}

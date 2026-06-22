@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { useAppState } from "@/state/context";
 import {
   deleteAllOrphanImages,
@@ -49,6 +50,7 @@ function GalleryGrid({
 }
 
 export function ResultGallery() {
+  const confirm = useConfirm();
   const { state, dispatch } = useAppState();
   const [previewImage, setPreviewImage] = useState<ImageEntry | null>(null);
   const [orphans, setOrphans] = useState<ImageEntry[]>([]);
@@ -83,7 +85,13 @@ export function ResultGallery() {
   }, [dispatch, state.historyRefresh, state.favoritesRefresh]);
 
   const handleDeleteOrphan = useCallback(async (imageId: number) => {
-    if (!confirm("Delete this unlinked image? This cannot be undone.")) return;
+    const proceed = await confirm({
+      title: "Delete unlinked image?",
+      description: "This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!proceed) return;
     try {
       await deleteImage(imageId);
       dispatch({ type: "REMOVE_IMAGE", imageId });
@@ -97,12 +105,18 @@ export function ResultGallery() {
     } catch {
       toast.error("Failed to delete image");
     }
-  }, [dispatch]);
+  }, [confirm, dispatch]);
 
   const handleDeleteAllOrphans = useCallback(async () => {
     const count = stats?.orphans ?? orphans.length;
     if (count === 0) return;
-    if (!confirm(`Delete all ${count} unlinked image(s)? This cannot be undone.`)) return;
+    const proceed = await confirm({
+      title: `Delete all ${count} unlinked image(s)?`,
+      description: "This cannot be undone.",
+      confirmLabel: "Delete all",
+      destructive: true,
+    });
+    if (!proceed) return;
     setCleaning(true);
     try {
       const deleted = await deleteAllOrphanImages();
@@ -124,38 +138,41 @@ export function ResultGallery() {
     } finally {
       setCleaning(false);
     }
-  }, [orphans.length, stats?.orphans]);
+  }, [confirm, orphans.length, stats?.orphans]);
 
   const orphanCount = stats?.orphans ?? orphans.length;
 
   return (
     <>
       {state.images.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card/30 px-4 py-10 text-center text-[13px] text-muted-foreground">
-          Generated images linked to history will appear here.
+        <div className="rounded-2xl border border-dashed border-border surface-canvas px-4 py-14 text-center">
+          <p className="text-title font-semibold text-foreground">No images yet</p>
+          <p className="mt-2 text-body-sm text-muted-foreground">
+            Generated images linked to history will appear here.
+          </p>
         </div>
       ) : (
         <GalleryGrid images={state.images} onPreview={setPreviewImage} />
       )}
 
       {orphanCount > 0 && (
-        <section className="mt-8 rounded-lg border border-amber-500/25 bg-amber-500/5">
+        <section className="mt-8 rounded-xl border border-border bg-card shadow-card">
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-4 py-3 text-left"
+            className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-muted/30 transition-colors rounded-xl"
             onClick={() => setOrphansOpen((open) => !open)}
           >
             {orphansOpen ? (
-              <ChevronDown className="size-4 shrink-0 text-amber-600" />
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
             ) : (
-              <ChevronRight className="size-4 shrink-0 text-amber-600" />
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             )}
             <AlertTriangle className="size-4 shrink-0 text-amber-600" />
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-medium text-foreground">
-                Unlinked images ({orphanCount})
+              <p className="text-body-sm font-medium text-foreground">
+                Maintenance · Unlinked images ({orphanCount})
               </p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-caption text-muted-foreground">
                 Not connected to a history entry
                 {stats != null && stats.null_prompt_id > 0 && stats.dangling > 0
                   ? ` — ${stats.null_prompt_id} without prompt, ${stats.dangling} stale link`

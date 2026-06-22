@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FavoriteButton } from "@/components/FavoriteButton";
@@ -23,6 +24,7 @@ function formatImageTimestamp(createdAt: string): string {
 }
 
 export function HistoryImagesPanel() {
+  const confirm = useConfirm();
   const { state, dispatch } = useAppState();
   const { promptId, images, previewImageId, loading } = useHistoryImages();
   const [previewImage, setPreviewImage] = useState<HistoryImageItem | null>(null);
@@ -37,7 +39,13 @@ export function HistoryImagesPanel() {
 
   const handleDelete = useCallback(async (image: HistoryImageItem) => {
     if (promptId == null) return;
-    if (!confirm(`Delete image #${image.id} from this history entry?`)) return;
+    const proceed = await confirm({
+      title: `Delete image #${image.id}?`,
+      description: "This removes the image from this history entry.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!proceed) return;
 
     try {
       await deleteImage(image.id);
@@ -59,15 +67,15 @@ export function HistoryImagesPanel() {
     } catch {
       toast.error("Failed to delete image");
     }
-  }, [dispatch, images, promptId, state.resultImage]);
+  }, [confirm, dispatch, images, promptId, state.resultImage]);
 
   if (promptId == null) return null;
 
   return (
     <>
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-2">
-          <h2 className="flex items-center gap-1.5 text-[12px] font-semibold tracking-[-0.01em] text-foreground">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+        <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2.5">
+          <h2 className="flex items-center gap-1.5 text-body-sm font-semibold text-foreground">
             <Images className="size-3.5 text-muted-foreground" />
             Images
             {images.length > 0 && (

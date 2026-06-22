@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { verifyCaption } from "@/api/client";
+import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { useAppState } from "@/state/context";
 import type { FormState, GenJob, HistoryLinkMode } from "@/state/types";
 import { MAX_GEN_QUEUE_SIZE } from "@/state/types";
@@ -24,6 +25,7 @@ function isPendingJob(job: GenJob) {
 
 export function useEnqueueGeneration() {
   const { state, dispatch } = useAppState();
+  const confirm = useConfirm();
 
   const hasPendingJobs = state.genQueue.some(isPendingJob);
   const canGenerate = state.modelState === "loaded";
@@ -59,9 +61,11 @@ export function useEnqueueGeneration() {
       try {
         const verifyRes = await verifyCaption(caption);
         if (!verifyRes.valid && verifyRes.warnings.length > 0) {
-          const proceed = confirm(
-            `Caption verification warnings:\n\n${verifyRes.warnings.join("\n")}\n\nProceed anyway?`,
-          );
+          const proceed = await confirm({
+            title: "Caption verification warnings",
+            description: verifyRes.warnings.join("\n"),
+            confirmLabel: "Proceed anyway",
+          });
           if (!proceed) return;
         }
       } catch {
@@ -117,6 +121,7 @@ export function useEnqueueGeneration() {
     }
   }, [
     canGenerate,
+    confirm,
     dispatch,
     hasPendingJobs,
     state.form,

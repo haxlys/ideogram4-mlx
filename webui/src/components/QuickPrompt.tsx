@@ -6,7 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
-import { AlertCircle, Check, CheckCircle2, Copy, ImageIcon, Plus, Wand2, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronDown, Copy, ImageIcon, Plus, Wand2, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface MagicPromptStatus {
   enabled: boolean;
@@ -86,6 +87,7 @@ export function QuickPrompt() {
   const { state: appState, dispatch } = useAppState();
   const [quickState, quickDispatch] = useReducer(quickPromptReducer, initialQuickPromptState);
   const [copied, setCopied] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const imagesRef = useRef<File[]>([]);
   const status = quickState.settings.status;
@@ -191,49 +193,38 @@ export function QuickPrompt() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-border bg-muted/25 p-3">
-        <div className="flex items-start gap-2">
-          {canUseMagicPrompt ? (
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-foreground" />
-          ) : (
-            <AlertCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          )}
-          <div className="min-w-0 space-y-1">
-            <p className="text-[13px] leading-5 text-foreground">
-              Quick Prompt uses an LLM to turn natural language and optional image references into Ideogram 4 JSON.
-            </p>
-            {status ? (
-              <p className="text-[12px] leading-5 text-muted-foreground">
-                {!status.enabled
-                  ? "Magic Prompt disabled. Configure IDEOGRAM4_MAGIC_PROMPT_* to enable natural-language expansion."
-                  : status.configured
-                  ? `Configured: ${status.provider} / ${status.model}`
-                  : status.missing_env.length > 0
-                    ? `Missing environment: ${status.missing_env.join(", ")}`
-                    : `LLM unreachable: ${status.llm_error ?? "health check failed"}`}
-              </p>
-            ) : (
-              <p className="text-[12px] leading-5 text-muted-foreground">
-                {quickState.settings.error
-                  ? `Could not read Magic Prompt settings: ${quickState.settings.error}`
-                  : quickState.settings.checked
-                    ? "Using the configured Magic Prompt provider."
-                    : "Checking Magic Prompt settings..."}
-              </p>
-            )}
-          </div>
-        </div>
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+        {canUseMagicPrompt ? (
+          <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        ) : (
+          <AlertCircle className="size-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <p className="min-w-0 truncate text-body-sm text-muted-foreground">
+          {status
+            ? !status.enabled
+              ? "Magic Prompt disabled"
+              : status.configured
+                ? `${status.provider} / ${status.model}`
+                : status.missing_env.length > 0
+                  ? `Missing: ${status.missing_env.join(", ")}`
+                  : `LLM unreachable`
+            : quickState.settings.error
+              ? "Settings unavailable"
+              : quickState.settings.checked
+                ? "Magic Prompt ready"
+                : "Checking Magic Prompt…"}
+        </p>
       </div>
 
       <div className="space-y-4">
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <p className="text-[13px] font-medium">Quick Prompt</p>
+            <p className="text-body-sm font-medium">Describe your image</p>
             <Textarea
-              placeholder="Describe your image in natural language... e.g. a Korean woman in hanbok drinking tea in an autumn garden"
+              placeholder="Describe your image in natural language… e.g. a woman in hanbok drinking tea in an autumn garden"
               value={quickState.text}
               onChange={(e) => quickDispatch({ type: "SET_TEXT", text: e.target.value })}
-              className="min-h-[138px] resize-y"
+              className="min-h-[160px] resize-y text-body"
               disabled={quickState.expanding}
             />
           </div>
@@ -312,36 +303,54 @@ export function QuickPrompt() {
           </Button>
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[13px] font-medium">Generated JSON</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCopyJson}
-              aria-label="Copy generated JSON"
-            >
-              {copied ? (
-                <>
-                  <Check className="mr-1 size-3.5" />
-                  Copied
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-1 size-3.5" />
-                  Copy
-                </>
-              )}
-            </Button>
-          </div>
-          <section
-            aria-label="Generated JSON view"
-            className="max-h-[460px] min-h-[260px] overflow-auto rounded-lg border border-input bg-muted/20 p-3"
+        <div className="rounded-lg border border-border bg-card shadow-card">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+            onClick={() => setJsonOpen((open) => !open)}
+            aria-expanded={jsonOpen}
           >
-            <pre className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-foreground">
-              {generatedJson}
-            </pre>
-          </section>
+            <span className="text-body-sm font-medium">Generated JSON</span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleCopyJson();
+                }}
+                aria-label="Copy generated JSON"
+              >
+                {copied ? (
+                  <>
+                    <Check className="mr-1 size-3.5" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="mr-1 size-3.5" />
+                    Copy
+                  </>
+                )}
+              </Button>
+              <ChevronDown
+                className={cn(
+                  "size-4 text-muted-foreground transition-transform",
+                  jsonOpen && "rotate-180",
+                )}
+              />
+            </div>
+          </button>
+          {jsonOpen && (
+            <section
+              aria-label="Generated JSON view"
+              className="max-h-[360px] overflow-auto border-t border-border px-3 py-3"
+            >
+              <pre className="whitespace-pre-wrap break-words font-mono text-body-sm leading-5 text-foreground">
+                {generatedJson}
+              </pre>
+            </section>
+          )}
         </div>
       </div>
     </div>
