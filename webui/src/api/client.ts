@@ -123,7 +123,11 @@ export async function getModelStatus() {
 }
 
 export async function loadModel() {
-  return request<LoadResponse>("/api/model/load", { method: "POST" });
+  const result = await request<LoadResponse>("/api/model/load", { method: "POST" });
+  if (!result.ok) {
+    throw new ApiError(502, result.msg ?? "Model load was rejected.");
+  }
+  return result;
 }
 
 export async function unloadModel() {

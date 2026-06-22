@@ -27,7 +27,7 @@ Usage:
 
 Modes:
   full      Restart model daemon, FastAPI server, and WebUI. Default.
-  backend   Restart only the FastAPI server; keep model daemon and WebUI running.
+  backend   Restart FastAPI; start model daemon if needed; keep WebUI running.
   client    Restart only the Vite WebUI; keep backend and model daemon running.
   doctor    Check local dependencies, model files, ports, and memory policy.
 
@@ -238,13 +238,15 @@ start_magic_llm() {
   wait_for_http "http://127.0.0.1:$port/health" "Local magic prompt LLM" 180
 }
 
-warn_if_model_daemon_unreachable() {
+ensure_model_daemon_running() {
   if curl -sf "${MODEL_DAEMON_URL%/}/health" >/dev/null 2>&1; then
     return
   fi
 
-  echo "Warning: model daemon is not reachable at ${MODEL_DAEMON_URL%/}." >&2
-  echo "FastAPI will still start, but image generation needs the daemon." >&2
+  echo "Model daemon is not reachable at ${MODEL_DAEMON_URL%/}; starting it..." >&2
+  "$VENV_PYTHON" "$ROOT/server/model_daemon.py" &
+  MODEL_DAEMON_PID=$!
+  wait_for_http "http://127.0.0.1:${MODEL_DAEMON_PORT}/health" "Model daemon" 60
 }
 
 run_full() {
@@ -286,7 +288,7 @@ run_full() {
 
 run_backend() {
   install_python_deps
-  warn_if_model_daemon_unreachable
+  ensure_model_daemon_running
 
   stop_port "$SERVER_PORT" "server"
 

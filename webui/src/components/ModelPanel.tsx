@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { loadModel, unloadModel } from "@/api/client";
+import { ApiError, loadModel, unloadModel } from "@/api/client";
 import { useAppState } from "@/state/context";
 import { useModelPolling } from "@/hooks/useModelPolling";
 import { Button } from "@/components/ui/button";
@@ -51,9 +51,16 @@ export function ModelPanel() {
     try {
       await loadModel();
       startPolling();
-    } catch {
+    } catch (error) {
       dispatch({ type: "SET_MODEL_STATE", state: "idle" });
-      toast.error("Failed to start model load.");
+      const message = error instanceof ApiError
+        ? error.message
+        : "Failed to start model load.";
+      const hint = message.toLowerCase().includes("daemon unreachable")
+        || message.toLowerCase().includes("connection refused")
+        ? " Start the stack with ./run.sh or ./run.sh full."
+        : "";
+      toast.error(`${message}${hint}`);
     }
   }
 
