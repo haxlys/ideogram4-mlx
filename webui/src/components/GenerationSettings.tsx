@@ -4,7 +4,6 @@ import { useAppState } from "@/state/context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Accordion,
   AccordionContent,
@@ -82,27 +81,34 @@ export function GenerationSettings() {
   const totalTime = genTime + loadTime;
 
   return (
-    <Card className="shadow-card">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-title font-semibold">Settings</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="flex items-center justify-center rounded-lg border border-border bg-muted/30 p-2.5">
+    <section
+      aria-label="Settings"
+      className="overflow-hidden rounded-2xl border border-border bg-card shadow-card"
+    >
+      <div className="border-b border-border bg-muted/30 px-4 py-2.5">
+        <h2 className="text-body-sm font-semibold text-foreground">Settings</h2>
+        <p className="mt-0.5 text-caption text-muted-foreground">
+          Resolution, quality, and generation options
+        </p>
+      </div>
+
+      <div className="space-y-4 p-4">
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 p-3">
+          <div className="flex items-center justify-center rounded-lg border border-border bg-background p-2.5 shadow-sm">
             <RatioPreview w={form.w} h={form.h} />
           </div>
-          <div className="flex-1 space-y-1 min-w-0">
+          <div className="min-w-0 flex-1 space-y-1">
             <p className="text-caption font-medium uppercase tracking-wider text-muted-foreground">
               {form.w}×{form.h} · {((form.w * form.h) / 1e6).toFixed(2)} MP
             </p>
-            <p className="text-body-sm font-medium tabular-nums">
+            <p className="text-body-sm font-medium tabular-nums text-foreground">
               {(form.w / form.h).toFixed(2)}:1 ratio
             </p>
           </div>
         </div>
 
         <div className="space-y-2">
-          <Label className="text-body-sm font-medium block">Aspect ratio</Label>
+          <Label className="block text-body-sm font-medium">Aspect ratio</Label>
           <div className="grid grid-cols-2 gap-1.5">
             {RESOLUTION_PRESETS.map(({ name, w, h }) => {
               const active = form.w === w && form.h === h;
@@ -150,107 +156,109 @@ export function GenerationSettings() {
           </Select>
         </div>
 
-        <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
           <span className="text-caption text-muted-foreground">Est.</span>
           <Badge variant="outline" className="text-caption font-mono">
             {modelState !== "loaded" ? `load ~${formatTime(loadTime)} + gen ${formatTime(genTime)}` : `gen ${formatTime(genTime)}`}
           </Badge>
           {totalTime > genTime && (
-            <span className="text-caption text-muted-foreground ml-auto tabular-nums">
+            <span className="ml-auto text-caption tabular-nums text-muted-foreground">
               {formatTime(totalTime)} total
             </span>
           )}
         </div>
 
-        <Accordion>
-          <AccordionItem value="advanced">
-            <AccordionTrigger className="py-2.5">Advanced options</AccordionTrigger>
-            <AccordionContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="customW" className="text-body-sm font-medium">Width</Label>
-                  <Input
-                    id="customW"
-                    type="number"
-                    min={MIN_DIMENSION}
-                    max={MAX_DIMENSION}
-                    step={DIMENSION_STEP}
-                    value={form.w}
-                    onChange={(e) => {
-                      let v = Number(e.target.value);
-                      v = snap128(v);
-                      dispatch({ type: "SET_FORM", form: { w: v } });
-                    }}
-                  />
+        <div className="border-t border-border pt-1">
+          <Accordion>
+            <AccordionItem value="advanced" className="border-b-0">
+              <AccordionTrigger className="py-2.5 text-foreground">Advanced options</AccordionTrigger>
+              <AccordionContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="customW" className="text-body-sm font-medium">Width</Label>
+                    <Input
+                      id="customW"
+                      type="number"
+                      min={MIN_DIMENSION}
+                      max={MAX_DIMENSION}
+                      step={DIMENSION_STEP}
+                      value={form.w}
+                      onChange={(e) => {
+                        let v = Number(e.target.value);
+                        v = snap128(v);
+                        dispatch({ type: "SET_FORM", form: { w: v } });
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="customH" className="text-body-sm font-medium">Height</Label>
+                    <Input
+                      id="customH"
+                      type="number"
+                      min={MIN_DIMENSION}
+                      max={MAX_DIMENSION}
+                      step={DIMENSION_STEP}
+                      value={form.h}
+                      onChange={(e) => {
+                        let v = Number(e.target.value);
+                        v = snap128(v);
+                        dispatch({ type: "SET_FORM", form: { h: v } });
+                      }}
+                    />
+                  </div>
                 </div>
+
                 <div className="space-y-1.5">
-                  <Label htmlFor="customH" className="text-body-sm font-medium">Height</Label>
-                  <Input
-                    id="customH"
-                    type="number"
-                    min={MIN_DIMENSION}
-                    max={MAX_DIMENSION}
-                    step={DIMENSION_STEP}
-                    value={form.h}
-                    onChange={(e) => {
-                      let v = Number(e.target.value);
-                      v = snap128(v);
-                      dispatch({ type: "SET_FORM", form: { h: v } });
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="format" className="text-body-sm font-medium">Format</Label>
-                <Select
-                  value={form.format}
-                  onValueChange={(v) => v &&
-                    dispatch({ type: "SET_FORM", form: { format: v as FormState["format"] } })
-                  }
-                >
-                  <SelectTrigger id="format">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="webp">WebP (lossless)</SelectItem>
-                    <SelectItem value="png">PNG</SelectItem>
-                    <SelectItem value="jpeg">JPEG</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="seed" className="text-body-sm font-medium">Seed</Label>
-                <div className="flex gap-1">
-                  <Input
-                    id="seed"
-                    value={form.seed}
-                    onChange={(e) =>
-                      dispatch({ type: "SET_FORM", form: { seed: e.target.value } })
+                  <Label htmlFor="format" className="text-body-sm font-medium">Format</Label>
+                  <Select
+                    value={form.format}
+                    onValueChange={(v) => v &&
+                      dispatch({ type: "SET_FORM", form: { format: v as FormState["format"] } })
                     }
-                    placeholder="random"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0"
-                    onClick={() =>
-                      dispatch({ type: "SET_FORM", form: { seed: randomSeedString() } })
-                    }
-                    title="Random seed"
                   >
-                    <Shuffle className="size-4" />
-                  </Button>
+                    <SelectTrigger id="format">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="webp">WebP (lossless)</SelectItem>
+                      <SelectItem value="png">PNG</SelectItem>
+                      <SelectItem value="jpeg">JPEG</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
 
-              <LoRASelector />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </CardContent>
-    </Card>
+                <div className="space-y-1.5">
+                  <Label htmlFor="seed" className="text-body-sm font-medium">Seed</Label>
+                  <div className="flex gap-1">
+                    <Input
+                      id="seed"
+                      value={form.seed}
+                      onChange={(e) =>
+                        dispatch({ type: "SET_FORM", form: { seed: e.target.value } })
+                      }
+                      placeholder="random"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() =>
+                        dispatch({ type: "SET_FORM", form: { seed: randomSeedString() } })
+                      }
+                      title="Random seed"
+                    >
+                      <Shuffle className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <LoRASelector />
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
+      </div>
+    </section>
   );
 }
