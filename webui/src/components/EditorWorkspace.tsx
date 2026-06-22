@@ -1,5 +1,5 @@
-import { EditorLayout } from "@/components/EditorLayout";
+import { HistoryEditorLayout } from "@/components/HistoryEditorLayout";
 
 export function EditorWorkspace() {
-  return <EditorLayout showHistoryImages />;
+  return <HistoryEditorLayout />;
 }

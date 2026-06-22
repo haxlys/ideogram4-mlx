@@ -3,15 +3,10 @@ import { useFormAutosave } from "@/hooks/useFormAutosave";
 import { CaptionEditor } from "@/components/CaptionEditor";
 import { GenerationActions } from "@/components/GenerationActions";
 import { GenerationSettings } from "@/components/GenerationSettings";
-import { HistoryImagesPanel } from "@/components/HistoryImagesPanel";
 import { ResultCanvas } from "@/components/ResultCanvas";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-interface EditorLayoutProps {
-  showHistoryImages?: boolean;
-}
-
-export function EditorLayout({ showHistoryImages = false }: EditorLayoutProps) {
+export function EditorLayout() {
   const { state } = useAppState();
 
   useFormAutosave(state.form);
@@ -28,7 +23,6 @@ export function EditorLayout({ showHistoryImages = false }: EditorLayoutProps) {
           <aside className="lg:sticky lg:top-[var(--header-height)] lg:max-h-[calc(100dvh-var(--header-height))] lg:overflow-y-auto lg:space-y-4 lg:py-1">
             <GenerationActions />
             <GenerationSettings />
-            {showHistoryImages && <HistoryImagesPanel />}
           </aside>
         </div>
       </div>
