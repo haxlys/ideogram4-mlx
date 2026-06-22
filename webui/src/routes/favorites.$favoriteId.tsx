@@ -3,7 +3,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { getFavoriteApi } from "@/api/client";
 import { useAppState } from "@/state/context";
 import { EditorWorkspace } from "@/components/EditorWorkspace";
-import { formSeedFromImage, imageEntryFromRow } from "@/lib/image";
+import {
+  findLatestDoneJobResult,
+  formSeedFromImage,
+  imageEntryFromRow,
+  shouldReplaceResultImage,
+} from "@/lib/image";
 import { invalidateImageCache, invalidatePromptsCache, loadPromptHistory } from "@/state/storage";
 import { DEFAULT_FORM } from "@/state/types";
 import { toast } from "sonner";
@@ -17,11 +22,16 @@ function FavoritePage() {
   const navigate = useNavigate();
   const { state, dispatch } = useAppState();
   const genQueueRef = useRef(state.genQueue);
+  const resultImageRef = useRef(state.resultImage);
   const loadedRef = useRef(false);
 
   useEffect(() => {
     genQueueRef.current = state.genQueue;
   }, [state.genQueue]);
+
+  useEffect(() => {
+    resultImageRef.current = state.resultImage;
+  }, [state.resultImage]);
 
   useEffect(() => {
     loadedRef.current = false;
@@ -93,16 +103,13 @@ function FavoritePage() {
       const promptId = favorite.prompt_id;
       if (promptId == null) return;
 
-      const doneJob = state.genQueue.find(
-        (job) =>
-          job.status === "done"
-          && job.promptId === promptId
-          && job.result?.historyLinked
-          && !job.historyLinkFailed,
-      );
-      if (doneJob?.result) {
-        dispatch({ type: "SHOW_RESULT", entry: doneJob.result });
-        const seed = formSeedFromImage(doneJob.result.seed);
+      const doneResult = findLatestDoneJobResult(genQueueRef.current, promptId);
+      if (
+        doneResult
+        && shouldReplaceResultImage(resultImageRef.current, doneResult)
+      ) {
+        dispatch({ type: "SHOW_RESULT", entry: doneResult });
+        const seed = formSeedFromImage(doneResult.seed);
         if (seed) {
           dispatch({ type: "SET_FORM", form: { seed } });
         }

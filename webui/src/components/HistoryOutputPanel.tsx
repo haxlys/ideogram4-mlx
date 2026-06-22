@@ -240,7 +240,10 @@ export function HistoryOutputPanel() {
                         size="icon-xs"
                         className="size-6 bg-background/90 shadow-sm"
                         aria-label={`Preview image ${image.id}`}
-                        onClick={() => setPreviewImage(image)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreviewImage(image);
+                        }}
                       >
                         <Maximize2 className="size-2.5" />
                       </Button>
@@ -249,7 +252,10 @@ export function HistoryOutputPanel() {
                         size="icon-xs"
                         className="size-6 bg-background/90 text-muted-foreground shadow-sm hover:text-destructive"
                         aria-label={`Delete image ${image.id}`}
-                        onClick={() => void handleDelete(image)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDelete(image);
+                        }}
                       >
                         <Trash2 className="size-2.5" />
                       </Button>

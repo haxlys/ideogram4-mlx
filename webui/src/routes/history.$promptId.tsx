@@ -92,7 +92,7 @@ function HistoryPage() {
     const doneResult = findLatestDoneJobResult(state.genQueue, id);
     if (
       doneResult
-      && shouldReplaceResultImage(state.resultImage, doneResult)
+      && shouldReplaceResultImage(resultImageRef.current, doneResult)
     ) {
       dispatch({ type: "SHOW_RESULT", entry: doneResult });
       const seed = formSeedFromImage(doneResult.seed);
@@ -100,7 +100,7 @@ function HistoryPage() {
         dispatch({ type: "SET_FORM", form: { seed } });
       }
     }
-  }, [state.genQueue, state.resultImage, promptId, dispatch]);
+  }, [state.genQueue, promptId, dispatch]);
 
   return <EditorWorkspace />;
 }
