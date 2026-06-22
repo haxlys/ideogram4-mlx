@@ -9,12 +9,12 @@ import {
   loadOrphanImages,
 } from "@/state/storage";
 import { getImageStats, type ImageStats } from "@/api/client";
+import { GalleryImageCard } from "@/components/GalleryImageCard";
 import { ImagePreviewLightbox } from "@/components/ImagePreviewLightbox";
 import { MasonryGallery } from "@/components/MasonryGallery";
-import { PreviewableImage } from "@/components/PreviewableImage";
 import { Button } from "@/components/ui/button";
+import { galleryImageHistoryPromptId } from "@/lib/gallery";
 import type { ImageEntry } from "@/state/types";
-import { FavoriteButton } from "@/components/FavoriteButton";
 import { AlertTriangle, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,22 +28,16 @@ function GalleryGrid({
   return (
     <MasonryGallery>
       {images.map((img) => (
-        <div key={img.id} className="group relative">
-          <PreviewableImage
-            src={img.url}
-            alt={img.hld?.slice(0, 60) ?? "Generated image"}
-            onPreview={() => onPreview(img)}
-            className="rounded-lg border border-border"
-            imageClassName="h-auto"
-            caption={img.hld?.slice(0, 32)}
-            hint={`Preview ${img.hld?.slice(0, 40) ?? "image"}`}
-          />
-          <FavoriteButton
-            imageId={img.id}
-            className="absolute top-2 right-2 bg-background/80 text-amber-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-            size="icon-sm"
-          />
-        </div>
+        <GalleryImageCard
+          key={img.id}
+          src={img.url}
+          alt={img.hld?.slice(0, 60) ?? "Generated image"}
+          imageId={img.id}
+          historyPromptId={galleryImageHistoryPromptId(img)}
+          caption={img.hld?.slice(0, 32)}
+          previewHint={`Preview ${img.hld?.slice(0, 40) ?? "image"}`}
+          onPreview={() => onPreview(img)}
+        />
       ))}
     </MasonryGallery>
   );
@@ -208,39 +202,27 @@ export function ResultGallery() {
             <div className="border-t border-amber-500/20 px-4 pb-4 pt-3">
               <MasonryGallery>
                 {orphans.map((img) => (
-                  <div key={img.id} className="group relative">
-                    <FavoriteButton
-                      imageId={img.id}
-                      className="absolute top-2 left-2 z-10 bg-background/80 text-amber-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                      size="icon-sm"
-                    />
-                    <PreviewableImage
-                      src={img.url}
-                      alt={img.hld?.slice(0, 60) ?? "Unlinked image"}
-                      onPreview={() => setPreviewImage(img)}
-                      className="rounded-lg border border-amber-500/30"
-                      imageClassName="h-auto"
-                      caption={
-                        img.prompt_id != null
-                          ? `Stale #${img.prompt_id}`
-                          : img.hld?.slice(0, 32)
-                      }
-                      hint={
-                        img.prompt_id != null
-                          ? `Unlinked image (stale prompt #${img.prompt_id})`
-                          : "Preview unlinked image"
-                      }
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon-xs"
-                      className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                      aria-label="Delete unlinked image"
-                      onClick={() => void handleDeleteOrphan(img.id)}
-                    >
-                      <Trash2 className="size-3" />
-                    </Button>
-                  </div>
+                  <GalleryImageCard
+                    key={img.id}
+                    src={img.url}
+                    alt={img.hld?.slice(0, 60) ?? "Unlinked image"}
+                    imageId={img.id}
+                    historyPromptId={galleryImageHistoryPromptId(img)}
+                    borderClassName="border-amber-500/30"
+                    caption={
+                      img.prompt_id != null
+                        ? `Stale #${img.prompt_id}`
+                        : img.hld?.slice(0, 32)
+                    }
+                    previewHint={
+                      img.prompt_id != null
+                        ? `Unlinked image (stale prompt #${img.prompt_id})`
+                        : "Preview unlinked image"
+                    }
+                    onPreview={() => setPreviewImage(img)}
+                    onDelete={() => void handleDeleteOrphan(img.id)}
+                    deleteLabel="Delete unlinked image"
+                  />
                 ))}
               </MasonryGallery>
             </div>
