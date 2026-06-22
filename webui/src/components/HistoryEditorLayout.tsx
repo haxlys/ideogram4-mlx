@@ -18,12 +18,9 @@ export function HistoryEditorLayout() {
           <GenerationActions className="w-full sm:w-auto" />
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)_minmax(300px,360px)] lg:items-start">
-          <aside className="lg:sticky lg:top-[var(--header-height)] lg:max-h-[calc(100dvh-var(--header-height))] lg:overflow-y-auto lg:py-1">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] lg:items-start">
+          <div className="min-w-0 space-y-6">
             <GenerationSettings />
-          </aside>
-
-          <div className="min-w-0">
             <PromptSection />
           </div>
 

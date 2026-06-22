@@ -1,8 +1,8 @@
 import { useAppState } from "@/state/context";
 import { useFormAutosave } from "@/hooks/useFormAutosave";
-import { CaptionEditor } from "@/components/CaptionEditor";
 import { GenerationActions } from "@/components/GenerationActions";
 import { GenerationSettings } from "@/components/GenerationSettings";
+import { PromptSection } from "@/components/PromptSection";
 import { ResultCanvas } from "@/components/ResultCanvas";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -18,15 +18,10 @@ export function EditorLayout() {
           <GenerationActions className="w-full sm:w-auto" />
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-          <div className="min-w-0 space-y-6">
-            <CaptionEditor />
-            <ResultCanvas />
-          </div>
-
-          <aside className="lg:sticky lg:top-[var(--header-height)] lg:max-h-[calc(100dvh-var(--header-height))] lg:overflow-y-auto lg:py-1">
-            <GenerationSettings />
-          </aside>
+        <div className="min-w-0 space-y-6">
+          <GenerationSettings />
+          <PromptSection />
+          <ResultCanvas />
         </div>
       </div>
     </ScrollArea>
