@@ -50,7 +50,7 @@ LORA_DIR = _resolve_path(os.environ.get("IDEOGRAM4_LORA_DIR", ""), ROOT / "model
 MODEL_PATH = _resolve_path(_MODEL_PATH_RAW, ROOT / _MODEL_PATH_RAW) if _MODEL_PATH_RAW else None
 
 # ── Generation defaults ───────────────────────────────────────────
-DEFAULT_PRESET = os.environ.get("IDEOGRAM4_DEFAULT_PRESET", "V4_QUALITY_48")
+DEFAULT_PRESET = os.environ.get("IDEOGRAM4_DEFAULT_PRESET", "V4_TURBO_12")
 DEFAULT_SERVER_FORMAT = os.environ.get("IDEOGRAM4_DEFAULT_FORMAT", "webp")
 DEFAULT_SEED = int(os.environ.get("IDEOGRAM4_DEFAULT_SEED", "20260608"))
 IMAGE_QUALITY_WEBP = int(os.environ.get("IDEOGRAM4_IMAGE_QUALITY_WEBP", "90"))

@@ -136,7 +136,7 @@ export const DEFAULT_FORM: FormState = {
   els: [{ id: "el-1", type: "obj", text: "", bbox: "", desc: "" }],
   w: 1024,
   h: 1024,
-  preset: "V4_QUALITY_48",
+  preset: "V4_TURBO_12",
   seed: "",
   format: "webp",
   rawJson: "",

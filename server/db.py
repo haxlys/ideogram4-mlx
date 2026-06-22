@@ -177,7 +177,7 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
             hld         TEXT NOT NULL DEFAULT '',
             width       INTEGER NOT NULL DEFAULT 1024,
             height      INTEGER NOT NULL DEFAULT 1024,
-            preset      TEXT NOT NULL DEFAULT 'V4_QUALITY_48',
+            preset      TEXT NOT NULL DEFAULT 'V4_TURBO_12',
             seed        INTEGER NOT NULL DEFAULT 0,
             file_path   TEXT NOT NULL,
             prompt_id   INTEGER,

@@ -275,7 +275,7 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=None, help="Output width, multiple of 16")
     parser.add_argument("--height", type=int, default=None, help="Output height, multiple of 16")
     parser.add_argument("--resolution", type=int, default=1024, help="Square resolution if width/height are unset")
-    parser.add_argument("--preset", default="V4_QUALITY_48", choices=["V4_QUALITY_48", "V4_DEFAULT_20", "V4_TURBO_12"])
+    parser.add_argument("--preset", default="V4_TURBO_12", choices=["V4_QUALITY_48", "V4_DEFAULT_20", "V4_TURBO_12"])
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--format", default="png", choices=["png", "webp", "jpeg"])
     parser.add_argument("--quality", type=int, default=None, help="Lossy quality 1-100 for webp/jpeg")
