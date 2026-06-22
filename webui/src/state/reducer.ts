@@ -69,17 +69,29 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "RESTORE_FORM": {
       const loaded = action.form;
+      const selectedPromptId = action.promptId ?? null;
+      const resultImage = selectedPromptId == null ? null : state.resultImage;
       if (loaded.rawJson && loaded.rawJson.trim()) {
         try {
           const caption = JSON.parse(loaded.rawJson);
           const patch = captionToForm(caption);
           const { rawJson: ignoredRawJson, ...formPatch } = patch;
           void ignoredRawJson;
-          return { ...state, form: { ...loaded, ...formPatch }, selectedPromptId: action.promptId ?? null };
+          return {
+            ...state,
+            form: { ...loaded, ...formPatch },
+            selectedPromptId,
+            resultImage,
+          };
         } catch { /* keep form as-is */ }
       }
       const syncedJson = JSON.stringify(buildCaptionJson(loaded), null, 2);
-      return { ...state, form: { ...loaded, rawJson: syncedJson }, selectedPromptId: action.promptId ?? null };
+      return {
+        ...state,
+        form: { ...loaded, rawJson: syncedJson },
+        selectedPromptId,
+        resultImage,
+      };
     }
 
     case "ADD_ELEMENT": {

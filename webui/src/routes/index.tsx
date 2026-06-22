@@ -13,7 +13,7 @@ function EditorPage() {
 
   useEffect(() => {
     const saved = loadLastForm();
-    dispatch({ type: "RESTORE_FORM", form: saved });
+    dispatch({ type: "RESTORE_FORM", form: saved, promptId: undefined });
   }, [dispatch]);
 
   return <EditorLayout />;
