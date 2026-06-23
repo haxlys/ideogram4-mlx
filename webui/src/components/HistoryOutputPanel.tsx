@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils";
 import { Download, ImageIcon, Maximize2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-function formatImageTimestamp(createdAt: string): string {
+function formatImageTimestamp(createdAt: string | undefined): string {
+  if (!createdAt) return "";
   const date = new Date(createdAt.includes("T") ? createdAt : `${createdAt.replace(" ", "T")}Z`);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleString(undefined, {

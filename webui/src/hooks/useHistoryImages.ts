@@ -65,7 +65,7 @@ export function useHistoryImages() {
           promptId: activePromptId,
           items: sortHistoryImagesByCreatedAt(rows).map((row) => ({
             ...imageEntryFromRow({ ...row, prompt_id: entry._id }),
-            createdAt: row.created_at,
+            createdAt: row.created_at ?? "",
           })),
           savedAt: entry._savedAt,
           loading: false,

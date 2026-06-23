@@ -14,7 +14,7 @@ export function EditorLayout() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ScrollArea className="flex-1">
-        <div className="mx-auto max-w-7xl px-4 py-5 pb-24 md:py-7 lg:pb-8">
+        <div className="mx-auto max-w-7xl px-4 pt-5 pb-24 md:pt-7 md:pb-24 lg:pb-8">
           <div className="mb-5 hidden items-center justify-between gap-4 lg:flex">
             <div>
               <h2 className="text-title font-semibold tracking-[-0.02em] text-foreground">
