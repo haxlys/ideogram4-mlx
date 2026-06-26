@@ -26,11 +26,12 @@ scanning, gitleaks, or trufflehog.
 
 ## Model And LoRA Supply Chain
 
-The project loads Hugging Face model code with `trust_remote_code=True`, which
-means model repository code should be treated as trusted local code execution.
-Use `IDEOGRAM4_MODEL_REVISION` to pin a known model commit when reproducibility
-or supply-chain review matters. Built-in LoRA presets are pinned to known
-repository commits.
+The project downloads Hugging Face model repositories and loads local weights
+through the installed MLX/mflux runtime. Treat model files and LoRA weights as
+trusted local inputs, and use `IDEOGRAM4_MODEL_REVISION` to pin a known model
+commit when reproducibility or supply-chain review matters. LoRA files are
+currently local `.safetensors` files under `IDEOGRAM4_LORA_DIR`; pin and review
+their source repositories outside this app when provenance matters.
 
 ## Reporting
 

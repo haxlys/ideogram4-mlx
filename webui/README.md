@@ -12,6 +12,7 @@ default the app runs at `http://localhost:5173` and proxies API calls to
 
 ```bash
 pnpm dev
+pnpm test
 pnpm build
 pnpm lint
 ```
@@ -41,14 +42,15 @@ cd ..
 - Prompt history, image records, favorites, and the latest editor form are
   stored through the FastAPI SQLite-backed endpoints. Generated files are served
   through `/outputs/*` or `/api/images/{image_id}/file`.
-- LoRA preset downloads, apply/remove reloads, and their progress polling are
-  exposed through `/api/lora/*`; the frontend expects apply/remove to return a
-  task id and then polls `/api/lora/operation/{task_id}`.
+- Local LoRA `.safetensors` files are exposed through `/api/lora/presets` as UI
+  presets. Apply/remove reloads return a task id and the frontend polls
+  `/api/lora/operation/{task_id}`. The `/api/lora/download` task endpoint still
+  exists for compatibility, but the current MLX runtime reports preset downloads
+  unsupported.
 - If raw JSON is present in the caption editor, that JSON object is submitted
   directly for generation.
 - Form state uses `useReducer` plus controlled inputs; do not add
-  `react-hook-form`/`zod` usage just because they appear in older dependency
-  history.
+  `react-hook-form`/`zod` usage unless a new feature actually needs them.
 - The generated `src/routeTree.gen.ts` file is maintained by TanStack Router.
   Temporary files under `.tanstack/tmp/` can appear during dev/build runs and
   are not hand-authored source.

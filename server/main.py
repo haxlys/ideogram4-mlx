@@ -147,6 +147,8 @@ def _task_image_from_row(row: dict, hld: str = "") -> dict:
         "hld": row.get("hld") or hld,
         "time": time.strftime("%H:%M:%S"),
         "prompt_id": row.get("prompt_id"),
+        "seed": row.get("seed"),
+        "preset": row.get("preset"),
         "lora_name": row.get("lora_name"),
         "lora_strength": row.get("lora_strength"),
         "applied_loras": _parse_lora_stack(row),

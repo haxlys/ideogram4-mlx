@@ -48,10 +48,11 @@ cd webui && pnpm install
 ```
 
 `server/requirements.txt` pins `mflux` to PR #445 commit
-`8d80b9cb53688b62a2f814604b9f8b48987c5acd`. As of 2026-06-22, stable mflux
-`0.18.0` includes Ideogram 4 FP8 support, but the mlx-forge checkpoint loader
-needed for `MLXBits/ideogram-4-mlx-q8` is still pending in PR #445. Keep the pin
-until a stable mflux release can load a repo containing `split_model.json`.
+`8d80b9cb53688b62a2f814604b9f8b48987c5acd`. As of 2026-06-26, stable mflux
+`0.18.0` is still the latest PyPI release and includes Ideogram 4 FP8 support,
+but the mlx-forge checkpoint loader needed for `MLXBits/ideogram-4-mlx-q8` is
+still pending in PR #445. Keep the pin until a stable mflux release can load a
+repo containing `split_model.json`.
 
 The rollback branch for the previous PyTorch/MPS implementation is
 `legacy/pytorch-mps`.
@@ -82,10 +83,11 @@ model card before using it outside personal or research workflows.
 ## Run
 
 ```bash
-./run.sh          # model daemon + FastAPI + WebUI
-./run.sh backend  # restart FastAPI only
-./run.sh client   # restart Vite only
-./run.sh doctor   # check dependencies, model files, ports, and memory policy
+./run.sh           # full stack, same as ./run.sh full
+./run.sh full      # restart model daemon, FastAPI, and WebUI
+./run.sh backend   # restart FastAPI; start the daemon if needed; keep WebUI running
+./run.sh client    # restart Vite only
+./run.sh doctor    # check dependencies, model files, ports, and memory policy
 ```
 
 Manual debugging:
@@ -118,9 +120,9 @@ python3 ideogram4_mlx.py --daemon off --prompt-file examples/caption.json --out 
 | `GET` | `/api/status/{task_id}` | Poll generation progress |
 | `POST` | `/api/cancel/{task_id}` | Request cancellation |
 | `GET` | `/api/lora/status` | Local LoRA files and active stack |
-| `GET` | `/api/lora/presets` | Built-in downloadable LoRA presets and installed state |
-| `POST` | `/api/lora/download` | Start a preset LoRA download task |
-| `GET` | `/api/lora/download/{task_id}` | Poll LoRA download progress |
+| `GET` | `/api/lora/presets` | Local mflux-compatible `.safetensors` files exposed as UI presets |
+| `POST` | `/api/lora/download` | Compatibility task endpoint; current MLX runtime reports downloads unsupported |
+| `GET` | `/api/lora/download/{task_id}` | Poll compatibility LoRA download task status |
 | `POST` | `/api/lora/apply` | Reload model with a local LoRA stack |
 | `POST` | `/api/lora/remove` | Reload model without LoRA |
 | `GET` | `/api/lora/operation/{task_id}` | Poll LoRA apply/remove progress |
@@ -131,6 +133,7 @@ python3 ideogram4_mlx.py --daemon off --prompt-file examples/caption.json --out 
 | `PATCH` | `/api/images/{image_id}` | Link an image to an existing prompt history row |
 | `POST` | `/api/images/{image_id}/attach-history` | Create or attach prompt history for an image |
 | `GET` | `/api/images/{image_id}/file` | Serve one generated image file |
+| `GET` | `/outputs/{filename}` | Serve a generated image file by stored output filename |
 | `GET` | `/api/prompts` | List saved prompt history rows |
 | `GET` | `/api/prompts/{prompt_id}` | Fetch one prompt history row |
 | `POST` | `/api/prompts` | Save a prompt history row |
@@ -146,8 +149,8 @@ python3 ideogram4_mlx.py --daemon off --prompt-file examples/caption.json --out 
 Generation is daemon single-slot. The WebUI can queue, reorder, cancel, and
 retry multiple client-side jobs, but only one job is submitted to the daemon at
 a time. Direct concurrent `/api/generate` calls return HTTP `409`. LoRA
-download/apply/remove operations also use model operation locks because mflux
-applies LoRA at model load time.
+apply/remove operations also use model operation locks because mflux applies
+LoRA at model load time.
 
 All MLX/mflux runtime calls are routed through a single worker thread inside the
 model daemon. This avoids MLX thread-local stream failures when a LoRA-loaded
@@ -166,7 +169,7 @@ See `.env.example` for all settings. Common values:
 | `IDEOGRAM4_MODEL_PATH` | empty | Optional local model root containing `split_model.json` |
 | `IDEOGRAM4_MLX_CACHE_LIMIT_GB` | empty | Optional MLX cache limit |
 | `IDEOGRAM4_MODEL_DAEMON_AUTOLOAD` | `0` | Load model when daemon starts |
-| `IDEOGRAM4_DEFAULT_PRESET` | `V4_QUALITY_48` | Default sampler preset |
+| `IDEOGRAM4_DEFAULT_PRESET` | `V4_TURBO_12` | Default sampler preset |
 | `IDEOGRAM4_MIN_IMAGE_SIZE` | `256` | Minimum API dimension |
 | `IDEOGRAM4_MAX_IMAGE_SIZE` | `2048` | Maximum API dimension |
 | `IDEOGRAM4_LORA_DIR` | `models/loras` | Local mflux-compatible LoRA files |
@@ -227,7 +230,7 @@ treated as source changes.
 ```bash
 python3 -m compileall server ideogram4_mlx.py
 rg "torch|safetensors.torch|from ideogram4|import ideogram4" server ideogram4_mlx.py
-cd webui && pnpm lint && pnpm build
+cd webui && pnpm test && pnpm lint && pnpm build
 ```
 
 With model files available, also verify:

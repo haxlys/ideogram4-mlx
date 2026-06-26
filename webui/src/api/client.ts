@@ -52,6 +52,8 @@ interface TaskImage {
   url: string;
   hld: string;
   time: string;
+  seed?: number;
+  preset?: string;
   prompt_id?: number | null;
   lora_name?: string | null;
   lora_strength?: number | null;

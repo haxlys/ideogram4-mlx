@@ -66,6 +66,8 @@ function linkedEntryFromTask(
     historyLinked: true,
     lora_name: data.image!.lora_name,
     lora_strength: data.image!.lora_strength,
+    seed: data.image!.seed,
+    preset: data.image!.preset,
     applied_loras: data.image!.applied_loras,
   });
 }
@@ -193,6 +195,8 @@ export function useGenerationQueue() {
                   historyLinked: false,
                   lora_name: data.image.lora_name,
                   lora_strength: data.image.lora_strength,
+                  seed: data.image.seed,
+                  preset: data.image.preset,
                   applied_loras: data.image.applied_loras,
                 });
 

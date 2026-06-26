@@ -10,6 +10,7 @@ interface ImageRowLike {
   hld: string;
   created_at?: string;
   prompt_id?: number | null;
+  preset?: string | null;
   seed?: number | null;
   lora_name?: string | null;
   lora_strength?: number | null;
@@ -186,6 +187,7 @@ export function imageEntryFromRow(
     time: row.created_at ? new Date(row.created_at).toLocaleTimeString() : "",
     prompt_id: row.prompt_id,
     seed: row.seed ?? undefined,
+    preset: row.preset ?? undefined,
     historyLinked,
     lora_name: row.lora_name,
     lora_strength: row.lora_strength,
@@ -214,6 +216,7 @@ export function imageEntryFromTask(image: {
   lora_name?: string | null;
   lora_strength?: number | null;
   seed?: number | null;
+  preset?: string | null;
   applied_loras?: ImageEntry["applied_loras"];
   historyLinked?: boolean;
 }): ImageEntry {
@@ -224,6 +227,7 @@ export function imageEntryFromTask(image: {
     time: image.time,
     prompt_id: image.prompt_id,
     seed: image.seed ?? undefined,
+    preset: image.preset ?? undefined,
     historyLinked: image.historyLinked ?? image.prompt_id != null,
     lora_name: image.lora_name,
     lora_strength: image.lora_strength,
