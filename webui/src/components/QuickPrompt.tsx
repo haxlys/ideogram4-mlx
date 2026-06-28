@@ -211,6 +211,7 @@ export function QuickPrompt() {
       dispatch({
         type: "MAGIC_EXPAND_START",
         payload: {
+          clientRequestId: crypto.randomUUID(),
           prompt: trimmed || "Describe this image in detail.",
           width: appState.form.w,
           height: appState.form.h,
@@ -219,6 +220,9 @@ export function QuickPrompt() {
         },
       });
       clearAttachedImages();
+      if (enqueueAfter) {
+        quickDispatch({ type: "SET_TEXT", text: "" });
+      }
       toast.message(
         enqueueAfter
           ? "Structuring with LLM, then queueing generation…"

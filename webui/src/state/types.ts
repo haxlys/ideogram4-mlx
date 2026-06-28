@@ -100,6 +100,7 @@ export const MAX_GEN_QUEUE_SIZE = 20;
 export type MagicExpandStatus = "idle" | "running" | "done" | "error";
 
 export interface MagicExpandPayload {
+  clientRequestId: string;
   prompt: string;
   width: number;
   height: number;

@@ -5,6 +5,19 @@ import { useEnqueueGeneration } from "@/hooks/useEnqueueGeneration";
 import { useAppState } from "@/state/context";
 import { subscribeMagicExpand } from "@/lib/magicExpandRunner";
 
+const AUTO_ENQUEUE_CLAIM_PREFIX = "ideogram4_magic_auto_enqueue:";
+
+function claimAutoEnqueue(clientRequestId: string): boolean {
+  try {
+    const key = `${AUTO_ENQUEUE_CLAIM_PREFIX}${clientRequestId}`;
+    if (sessionStorage.getItem(key)) return false;
+    sessionStorage.setItem(key, String(Date.now()));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 export function useMagicPromptExpandRunner() {
   const { state, dispatch } = useAppState();
   const navigate = useNavigate();
@@ -35,6 +48,7 @@ export function useMagicPromptExpandRunner() {
         if (shouldEnqueueAfter) {
           if (enqueuedForRequestId.current === requestId) return;
           enqueuedForRequestId.current = requestId;
+          if (!claimAutoEnqueue(pending.clientRequestId || String(requestId))) return;
           void enqueue({
             historyLink: "new",
             newSeed: true,
