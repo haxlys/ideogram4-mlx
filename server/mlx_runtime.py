@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -399,7 +400,22 @@ class MlxRuntime:
 
     @staticmethod
     def _friendly_lora_name(name: str) -> str:
-        return name.removesuffix(".safetensors").replace("_", " ")
+        stem = name.removesuffix(".safetensors")
+        simpletuner = re.match(
+            r"^SimpleTuner_(?P<subject>.+?)(?:_v(?P<version>\d+))?_rank(?P<rank>\d+)(?:_(?P<resolution>\d+))?_step(?P<step>\d+)$",
+            stem,
+        )
+        if simpletuner:
+            subject = MlxRuntime._friendly_subject_name(simpletuner.group("subject"))
+            version = f" v{simpletuner.group('version')}" if simpletuner.group("version") else ""
+            resolution = f" {simpletuner.group('resolution')}" if simpletuner.group("resolution") else ""
+            return f"{subject}{version} rank{simpletuner.group('rank')}{resolution} step{simpletuner.group('step')}"
+        return stem.replace("_", " ")
+
+    @staticmethod
+    def _friendly_subject_name(subject: str) -> str:
+        words = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", subject.replace("_", " ")).strip()
+        return words or subject
 
     def _configure_mlx_cache(self) -> None:
         if MLX_CACHE_LIMIT_GB is None:

@@ -347,7 +347,7 @@ export function GenerationSettings() {
         <SettingsGroup dense title="Resolution" description="128px steps">
           {resolutionBlock}
         </SettingsGroup>
-        <SettingsGroup dense title="LoRA" description="Realism / zJourney">
+        <SettingsGroup dense title="LoRA" description="Identity / Realism / zJourney">
           <LoRASelector embedded dense />
         </SettingsGroup>
       </div>

@@ -3,7 +3,24 @@ export interface AppliedLoraRef {
   strength: number;
 }
 
+function friendlySimpleTunerSubject(subject: string) {
+  return subject.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 export function friendlyLoraName(name: string) {
+  const simpleTuner = name.match(
+    /^SimpleTuner_(.+?)(?:_v(\d+))?_rank(\d+)(?:_(\d+))?_step(\d+)\.safetensors$/i,
+  );
+  if (simpleTuner) {
+    const [, subject, version, rank, resolution, step] = simpleTuner;
+    return [
+      friendlySimpleTunerSubject(subject),
+      version ? `v${version}` : null,
+      `r${rank}`,
+      resolution ?? null,
+      `step${step}`,
+    ].filter(Boolean).join(" ");
+  }
   return name
     .replace("Realism_Engine_Ideogram_", "Realism ")
     .replace("Realism_Engine_", "Realism ")

@@ -13,6 +13,8 @@ venv/
 !examples/result_village.png
 !examples/result_pattern.png
 !examples/webui-screenshot.png
+datasets/
+generated/
 output/
 outputs/
 server/output/
@@ -44,6 +46,11 @@ models/
 
 # Environment
 .env
+
+# Local/private LoRA training inputs and subject configs
+local/
+configs/lora_subjects.local/
+notes/*-lora-image-collection-*.md
 
 # Worktrees
 .worktrees/

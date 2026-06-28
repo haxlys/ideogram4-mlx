@@ -1,6 +1,6 @@
 import type { LoraPreset } from "@/lib/loraTypes";
 
-export type LoraFamilyId = "realism" | "zjourney";
+export type LoraFamilyId = "identity" | "realism" | "zjourney";
 
 export interface LoraFamilyMeta {
   id: LoraFamilyId;
@@ -9,20 +9,38 @@ export interface LoraFamilyMeta {
 }
 
 export const LORA_FAMILIES: LoraFamilyMeta[] = [
+  { id: "identity", title: "Identity", description: "Trained person LoRAs" },
   { id: "realism", title: "Realism", description: "Photoreal detail and lighting" },
   { id: "zjourney", title: "zJourney", description: "Stylized illustration LoRAs" },
 ];
 
 export function loraFamilyFromPreset(preset: LoraPreset): LoraFamilyId | null {
   const raw = (preset.loras[0]?.name ?? preset.id).toLowerCase();
+  if (raw.startsWith("simpletuner_")) return "identity";
   if (raw.includes("zjourney")) return "zjourney";
   if (raw.includes("realism")) return "realism";
   return null;
 }
 
+function identitySubjectChip(subject: string) {
+  return subject
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(/\s+/)
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+}
+
 /** Short version chip, e.g. V4, v2, V1 */
 export function loraVersionChip(preset: LoraPreset): string {
   const raw = preset.loras[0]?.name ?? preset.id;
+  const simpleTuner = raw.match(/SimpleTuner_(.+?)(?:_v(\d+))?_rank\d+(?:_\d+)?_step(\d+)/i);
+  if (simpleTuner) {
+    const [, subject, version, step] = simpleTuner;
+    return `${identitySubjectChip(subject)}${version ? ` v${version}` : ""} ${step}`;
+  }
   const ideogram = raw.match(/Ideogram[_\s]*V(\d+)/i);
   if (ideogram) return `V${ideogram[1]}`;
   const engineV = raw.match(/Realism_Engine_V(\d+)/i);

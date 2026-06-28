@@ -79,8 +79,21 @@ function loraUiReducer(state: LoraUiState, action: LoraUiAction): LoraUiState {
   }
 }
 
-function stackKey(loras: Array<{ name: string; strength: number }>) {
-  return loras.map((l) => `${l.name}:${l.strength}`).join("|");
+function presetIsActive(preset: LoraPreset, appliedLoras: AppliedLora[]) {
+  return preset.loras.every((presetLora) =>
+    appliedLoras.some((applied) => applied.name === presetLora.name),
+  );
+}
+
+function stackWithoutPreset(preset: LoraPreset, appliedLoras: AppliedLora[]) {
+  const presetNames = new Set(preset.loras.map((lora) => lora.name));
+  return appliedLoras.filter((applied) => !presetNames.has(applied.name));
+}
+
+function stackWithPreset(preset: LoraPreset, appliedLoras: AppliedLora[]) {
+  const withoutPreset = stackWithoutPreset(preset, appliedLoras);
+  const presetStack = preset.loras.map((lora) => ({ name: lora.name, strength: lora.strength }));
+  return [...withoutPreset, ...presetStack];
 }
 
 function presetSize(preset: LoraPreset) {
@@ -113,20 +126,22 @@ async function waitForDownload(taskId: string, onUpdate: (operation: LoraOperati
 
 function activeFamilyLabel(appliedLoras: AppliedLora[]): string | null {
   if (appliedLoras.length === 0) return null;
-  const name = appliedLoras[0].name;
-  const family = name.toLowerCase().includes("zjourney")
-    ? "zJourney"
-    : name.toLowerCase().includes("realism")
-      ? "Realism"
-      : null;
-  const chip = loraVersionChip({
-    id: name,
-    label: name,
-    installed: true,
-    loras: [{ name, strength: appliedLoras[0].strength, installed: true }],
-  });
-  if (family) return `${family} ${chip}`;
-  return friendlyLoraName(name);
+  return appliedLoras.map((applied) => {
+    const name = applied.name;
+    const family = name.toLowerCase().includes("zjourney")
+      ? "zJourney"
+      : name.toLowerCase().includes("realism")
+        ? "Realism"
+        : null;
+    const chip = loraVersionChip({
+      id: name,
+      label: name,
+      installed: true,
+      loras: [{ name, strength: applied.strength, installed: true }],
+    });
+    const label = family ? `${family} ${chip}` : friendlyLoraName(name);
+    return `${label} ${applied.strength}`;
+  }).join(" + ");
 }
 
 export function LoRASelector({ embedded = false, dense = false }: { embedded?: boolean; dense?: boolean } = {}) {
@@ -168,7 +183,6 @@ export function LoRASelector({ embedded = false, dense = false }: { embedded?: b
     };
   }, [state.modelState]);
 
-  const activeKey = stackKey(appliedLoras);
   const appliedSummary = activeFamilyLabel(appliedLoras);
 
   const waitForLoraOperation = async (taskId: string) => {
@@ -190,16 +204,18 @@ export function LoRASelector({ embedded = false, dense = false }: { embedded?: b
     return waitForLoraOperation(taskId);
   };
 
-  const handleApplyPreset = async (preset: LoraPreset) => {
+  const handleApplyStack = async (
+    loras: Array<{ name: string; strength: number }>,
+    loadingPresetId: string | null,
+  ) => {
     dispatchLora({
       type: "SET_LOADING",
       loading: true,
-      loadingPreset: preset.id,
+      loadingPreset: loadingPresetId,
       loraOperation: { msg: "Queued MLX model reload...", phase: "queued", progress: null },
     });
     try {
-      const loras = preset.loras.map((lora) => ({ name: lora.name, strength: lora.strength }));
-      const res = await applyLoraStack(loras);
+      const res = loras.length > 0 ? await applyLoraStack(loras) : await removeLoraApi();
       if (res.ok && res.task_id) {
         const result = await waitForLoraOperation(res.task_id);
         await refresh();
@@ -244,11 +260,10 @@ export function LoRASelector({ embedded = false, dense = false }: { embedded?: b
       void handleDownloadPreset(preset);
       return;
     }
-    if (active) {
-      void handleRemove();
-    } else {
-      void handleApplyPreset(preset);
-    }
+    const nextLoras = active
+      ? stackWithoutPreset(preset, appliedLoras)
+      : stackWithPreset(preset, appliedLoras);
+    void handleApplyStack(nextLoras, preset.id);
   };
 
   const handleRemove = async () => {
@@ -277,7 +292,7 @@ export function LoRASelector({ embedded = false, dense = false }: { embedded?: b
   if (presets.length === 0) return null;
 
   const renderPresetChip = (preset: LoraPreset) => {
-    const active = activeKey === stackKey(preset.loras);
+    const active = presetIsActive(preset, appliedLoras);
     const downloading = downloadingPreset === preset.id;
     const busy = loading && loadingPreset === preset.id;
     const size = presetSize(preset);
@@ -320,7 +335,7 @@ export function LoRASelector({ embedded = false, dense = false }: { embedded?: b
   const renderFamilyBlock = (title: string, description: string, items: LoraPreset[]) => {
     if (items.length === 0) return null;
     return (
-      <div className={cn(dense ? "space-y-1" : "space-y-2")}>
+      <div key={title} className={cn(dense ? "space-y-1" : "space-y-2")}>
         <div>
           <p className={cn("font-medium text-foreground", dense ? "text-[11px]" : "text-caption")}>{title}</p>
           {!dense ? (
@@ -342,7 +357,6 @@ export function LoRASelector({ embedded = false, dense = false }: { embedded?: b
                 Active:{" "}
                 <span className="font-medium text-foreground tabular-nums">
                   {appliedSummary}
-                  {appliedLoras[0]?.strength != null ? ` · ${appliedLoras[0].strength}` : ""}
                 </span>
               </>
             )
