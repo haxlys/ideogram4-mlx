@@ -14,6 +14,20 @@ export function hasSubstantiveCaptionJson(rawJson: string): boolean {
   }
 }
 
+export type QuickPromptGenerateMode = "magic-prompt" | "raw-json" | "missing-input";
+
+export function quickPromptGenerateMode({
+  hasQuickInput,
+  hasReadyJson,
+}: {
+  hasQuickInput: boolean;
+  hasReadyJson: boolean;
+}): QuickPromptGenerateMode {
+  if (hasQuickInput) return "magic-prompt";
+  if (hasReadyJson) return "raw-json";
+  return "missing-input";
+}
+
 export interface MagicPromptStatusLike {
   enabled: boolean;
   configured: boolean;

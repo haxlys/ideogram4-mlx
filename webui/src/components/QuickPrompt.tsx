@@ -2,7 +2,7 @@ import { useReducer, useRef, useCallback, useEffect, useState } from "react";
 import { useAppState } from "@/state/context";
 import { getMagicPromptStatus } from "@/api/client";
 import { useEnqueueGeneration } from "@/hooks/useEnqueueGeneration";
-import { hasSubstantiveCaptionJson, magicPromptBlockingReason } from "@/lib/quickPromptFlow";
+import { hasSubstantiveCaptionJson, magicPromptBlockingReason, quickPromptGenerateMode } from "@/lib/quickPromptFlow";
 import { aspectRatioFromSize } from "@/lib/aspectRatio";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -121,7 +121,8 @@ export function QuickPrompt() {
   const hasQuickInput = quickTrimmed.length > 0 || quickState.previews.length > 0;
   const hasReadyJson = hasSubstantiveCaptionJson(appState.form.rawJson);
   const magicBlocked = magicPromptBlockingReason(status);
-  const generateNeedsLlm = hasQuickInput && !hasReadyJson;
+  const generateMode = quickPromptGenerateMode({ hasQuickInput, hasReadyJson });
+  const generateNeedsLlm = generateMode === "magic-prompt";
   const statusProblem = magicStatusHint(status, quickState.settings.error, quickState.settings.checked);
   const showExamples = quickTrimmed.length === 0;
 
@@ -235,16 +236,16 @@ export function QuickPrompt() {
 
   const handleGenerate = () => {
     if (!canGenerate) return;
-    if (hasReadyJson) {
+    if (generateMode === "magic-prompt") {
+      void startMagicExpand(true);
+      return;
+    }
+    if (generateMode === "raw-json") {
       void enqueue({
         historyLink: "new",
         newSeed: true,
         skipVerify: true,
       });
-      return;
-    }
-    if (hasQuickInput) {
-      void startMagicExpand(true);
       return;
     }
     toast.error("Describe your image, or expand / add structured JSON first");

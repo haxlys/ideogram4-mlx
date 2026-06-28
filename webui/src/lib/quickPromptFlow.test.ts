@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { hasSubstantiveCaptionJson, magicPromptBlockingReason } from "./quickPromptFlow.ts";
+import { hasSubstantiveCaptionJson, magicPromptBlockingReason, quickPromptGenerateMode } from "./quickPromptFlow.ts";
 
 describe("hasSubstantiveCaptionJson", () => {
   it("rejects empty and non-objects", () => {
@@ -40,6 +40,29 @@ describe("magicPromptBlockingReason", () => {
         missing_env: [],
         llm_error: null,
       })?.includes("disabled"),
+    );
+  });
+});
+
+describe("quickPromptGenerateMode", () => {
+  it("prefers fresh Quick Prompt input over existing raw JSON", () => {
+    assert.equal(
+      quickPromptGenerateMode({ hasQuickInput: true, hasReadyJson: true }),
+      "magic-prompt",
+    );
+  });
+
+  it("uses raw JSON only when there is no fresh Quick Prompt input", () => {
+    assert.equal(
+      quickPromptGenerateMode({ hasQuickInput: false, hasReadyJson: true }),
+      "raw-json",
+    );
+  });
+
+  it("requires input when neither Quick Prompt nor JSON is ready", () => {
+    assert.equal(
+      quickPromptGenerateMode({ hasQuickInput: false, hasReadyJson: false }),
+      "missing-input",
     );
   });
 });
