@@ -45,6 +45,8 @@ export interface ImageEntry {
   prompt_id?: number | null;
   seed?: number;
   preset?: string;
+  width?: number;
+  height?: number;
   /** True when prompt_id references an existing history row. */
   historyLinked?: boolean;
   lora_name?: string | null;

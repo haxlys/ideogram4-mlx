@@ -4,7 +4,7 @@ import type { AppAction, FormState, GenJob, HistoryLinkMode } from "@/state/type
 import { MAX_GEN_QUEUE_SIZE } from "@/state/types";
 import { randomSeed } from "@/lib/seed";
 import { getCaptionForGeneration, getCaptionHld } from "@/validation/caption";
-import { findDuplicatePendingJob, generationRequestFingerprint, queuedJobCount } from "@/lib/genQueueDedupe";
+import { queuedJobCount } from "@/lib/genQueueDedupe";
 
 export interface EnqueueGenerationInput {
   form: FormState;
@@ -58,21 +58,6 @@ export async function enqueueGenerationJob(
     } catch {
       // Verification is best-effort.
     }
-  }
-
-  const historyLinkMode = input.historyLink;
-  const promptIdForJob = historyLinkMode === "regenerate" ? input.selectedPromptId ?? undefined : undefined;
-  const fingerprint = generationRequestFingerprint(
-    caption,
-    formForJob.w,
-    formForJob.h,
-    formForJob.preset,
-    formForJob.format,
-    historyLinkMode,
-    promptIdForJob,
-  );
-  if (findDuplicatePendingJob(input.genQueue, fingerprint)) {
-    return { ok: false, reason: "This generation is already queued or running." };
   }
 
   const resolvedSeed = input.newSeed

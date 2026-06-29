@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import { Dna, Gauge, Layers2 } from "lucide-react";
+import { Dna, Gauge, Layers2, Scan } from "lucide-react";
+import { aspectRatioFromSize } from "@/lib/aspectRatio";
 import { appliedLorasFromImage, friendlyLoraName } from "@/lib/lora";
 import { presetShortLabel } from "@/lib/presetLabels";
 import { cn } from "@/lib/utils";
@@ -8,7 +9,7 @@ import type { ImageEntry } from "@/state/types";
 interface ImageLoraMetaProps {
   image: Pick<
     ImageEntry,
-    "lora_name" | "lora_strength" | "applied_loras" | "seed" | "preset"
+    "lora_name" | "lora_strength" | "applied_loras" | "seed" | "preset" | "width" | "height"
   >;
   className?: string;
   tone?: "default" | "on-dark";
@@ -30,6 +31,16 @@ export function ImageLoraMeta({ image, className, tone = "default" }: ImageLoraM
   const seedLabel =
     image.seed != null && Number.isFinite(image.seed) ? String(image.seed) : null;
 
+  const resolutionLabel =
+    image.width != null
+    && image.height != null
+    && Number.isFinite(image.width)
+    && Number.isFinite(image.height)
+    && image.width > 0
+    && image.height > 0
+      ? `${image.width}×${image.height} · ${aspectRatioFromSize(image.width, image.height)}`
+      : null;
+
   return (
     <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1", className)}>
       {qualityLabel != null && (
@@ -37,6 +48,14 @@ export function ImageLoraMeta({ image, className, tone = "default" }: ImageLoraM
           <Gauge className={cn("size-3 shrink-0", iconClass)} aria-hidden />
           <Badge variant="outline" className={metaBadgeClass}>
             {qualityLabel}
+          </Badge>
+        </div>
+      )}
+      {resolutionLabel != null && (
+        <div className="flex items-center gap-1">
+          <Scan className={cn("size-3 shrink-0", iconClass)} aria-hidden />
+          <Badge variant="outline" className={metaBadgeClass}>
+            {resolutionLabel}
           </Badge>
         </div>
       )}
