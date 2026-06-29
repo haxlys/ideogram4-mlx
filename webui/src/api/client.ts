@@ -57,9 +57,20 @@ interface TaskImage {
   width?: number;
   height?: number;
   prompt_id?: number | null;
+  parent_image_id?: number | null;
   lora_name?: string | null;
   lora_strength?: number | null;
   applied_loras?: AppliedLoraImageRef[] | null;
+}
+
+export interface UpscaleConfigResponse {
+  configured: boolean;
+  bin_path: string | null;
+  model_dir: string | null;
+  available_presets: UpscalePreset[];
+  backend: string;
+  error: string | null;
+  busy: boolean;
 }
 
 interface TaskStatusResponse {
@@ -70,6 +81,24 @@ interface TaskStatusResponse {
   total_steps?: number;
   error?: string;
   cancelled?: boolean;
+}
+
+export type UpscalePreset = "standard" | "sharp";
+export type UpscaleScale = 2 | 4;
+
+interface UpscaleResponse {
+  task_id: string;
+}
+
+interface UpscaleStatusResponse {
+  state: "running" | "done";
+  msg?: string;
+  progress?: number;
+  image?: TaskImage | null;
+  error?: string;
+  source_image_id?: number;
+  scale?: UpscaleScale;
+  preset?: UpscalePreset;
 }
 
 interface CancelTaskResponse {
@@ -152,6 +181,30 @@ export async function getTaskStatus(taskId: string) {
 
 export async function cancelTask(taskId: string) {
   return request<CancelTaskResponse>(`/api/cancel/${taskId}`, { method: "POST" });
+}
+
+export async function getUpscaleConfig() {
+  return request<UpscaleConfigResponse>("/api/upscale/status");
+}
+
+export async function submitUpscale(data: {
+  imageId: number;
+  scale: UpscaleScale;
+  preset?: UpscalePreset;
+}) {
+  return request<UpscaleResponse>("/api/upscale", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image_id: data.imageId,
+      scale: data.scale,
+      preset: data.preset ?? "standard",
+    }),
+  });
+}
+
+export async function getUpscaleTaskStatus(taskId: string) {
+  return request<UpscaleStatusResponse>(`/api/upscale/${taskId}`);
 }
 
 export async function verifyCaption(caption: object) {

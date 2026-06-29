@@ -20,6 +20,7 @@ outputs/
 server/output/
 server/data/
 examples/benchmarks/
+artifacts/
 
 # Runtime logs
 logs/

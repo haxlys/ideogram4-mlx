@@ -1,18 +1,22 @@
 import { useNavigate } from "@tanstack/react-router";
 import { FavoriteButton } from "@/components/FavoriteButton";
+import { ImageUpscaleButton } from "@/components/ImageUpscaleButton";
 import { PreviewableImage } from "@/components/PreviewableImage";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { ImageEntry } from "@/state/types";
 import { History, Trash2 } from "lucide-react";
 
 export interface GalleryImageCardProps {
   src: string;
   alt: string;
   imageId: number;
+  image?: ImageEntry;
   onPreview: () => void;
   historyPromptId?: number | null;
   caption?: string;
   previewHint?: string;
+  onUpscaleComplete?: (image: ImageEntry) => void;
   onDelete?: () => void;
   deleteLabel?: string;
   className?: string;
@@ -24,10 +28,12 @@ export function GalleryImageCard({
   src,
   alt,
   imageId,
+  image,
   onPreview,
   historyPromptId = null,
   caption,
   previewHint,
+  onUpscaleComplete,
   onDelete,
   deleteLabel = "Delete image",
   className,
@@ -79,6 +85,14 @@ export function GalleryImageCard({
           className="bg-background/85 text-amber-500 shadow-sm"
           size="icon-sm"
         />
+        {image && (
+          <ImageUpscaleButton
+            image={image}
+            className="text-foreground"
+            size="icon-sm"
+            onComplete={onUpscaleComplete}
+          />
+        )}
         {onDelete && (
           <Button
             type="button"

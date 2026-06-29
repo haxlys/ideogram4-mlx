@@ -49,6 +49,7 @@ export interface ImageEntry {
   height?: number;
   /** True when prompt_id references an existing history row. */
   historyLinked?: boolean;
+  parent_image_id?: number | null;
   lora_name?: string | null;
   lora_strength?: number | null;
   applied_loras?: AppliedLoraEntry[] | null;

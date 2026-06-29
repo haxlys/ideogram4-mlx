@@ -119,6 +119,9 @@ python3 ideogram4_mlx.py --daemon off --prompt-file examples/caption.json --out 
 | `POST` | `/api/generate` | Start one local generation job |
 | `GET` | `/api/status/{task_id}` | Poll generation progress |
 | `POST` | `/api/cancel/{task_id}` | Request cancellation |
+| `GET` | `/api/upscale/status` | Local Real-ESRGAN ncnn-vulkan configuration and busy state |
+| `POST` | `/api/upscale` | Start a local image upscale job for an existing image |
+| `GET` | `/api/upscale/{task_id}` | Poll local upscale progress/result |
 | `GET` | `/api/lora/status` | Local LoRA files and active stack |
 | `GET` | `/api/lora/presets` | Local mflux-compatible `.safetensors` files exposed as UI presets |
 | `POST` | `/api/lora/download` | Compatibility task endpoint; current MLX runtime reports downloads unsupported |
@@ -173,12 +176,23 @@ See `.env.example` for all settings. Common values:
 | `IDEOGRAM4_MIN_IMAGE_SIZE` | `256` | Minimum API dimension |
 | `IDEOGRAM4_MAX_IMAGE_SIZE` | `2048` | Maximum API dimension |
 | `IDEOGRAM4_LORA_DIR` | `models/loras` | Local mflux-compatible LoRA files |
+| `IDEOGRAM4_UPSCALER_BACKEND` | `realesrgan_ncnn` | Upscaler adapter id (extensible; only `realesrgan_ncnn` ships today) |
+| `IDEOGRAM4_UPSCALER_BIN` | empty | Optional `realesrgan-ncnn-vulkan` executable path |
+| `IDEOGRAM4_UPSCALER_MODEL_DIR` | empty | Optional directory containing Real-ESRGAN ncnn `.bin`/`.param` model files |
+| `IDEOGRAM4_UPSCALER_MAX_OUTPUT_PIXELS` | `67108864` | Safety limit for upscaled output pixels |
 
 Autoload is off by default so the local Magic Prompt LLM and the image model do
 not immediately compete for unified memory. Use the WebUI Load button or
 `POST /api/model/load` when image generation is needed. Set
 `IDEOGRAM4_MLX_CACHE_LIMIT_GB` when the machine needs a stricter reusable MLX
 cache budget.
+
+The optional upscaler runs outside the MLX model daemon through the
+`realesrgan-ncnn-vulkan` CLI. Configure `IDEOGRAM4_UPSCALER_BIN` and
+`IDEOGRAM4_UPSCALER_MODEL_DIR` to enable Standard 2x/4x upscaling from the
+WebUI gallery and result panels. Upscaled images store `parent_image_id` in
+SQLite for provenance. Local upscale benchmark PNGs belong under `artifacts/`
+(gitignored); do not commit them.
 
 ## Benchmarks
 

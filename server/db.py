@@ -226,6 +226,10 @@ def init_db(db_path: str | None = None, output_dir: str | None = None):
         conn.execute("ALTER TABLE images ADD COLUMN lora_stack_json TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE images ADD COLUMN parent_image_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
     _migrate_legacy_image_paths()
@@ -243,12 +247,25 @@ def add_image(
     lora_name: str | None = None,
     lora_strength: float | None = None,
     lora_stack_json: str | None = None,
+    parent_image_id: int | None = None,
 ) -> int:
     stored_path = normalize_image_path_for_storage(file_path)
     conn = _conn()
     cur = conn.execute(
-        "INSERT INTO images (hld, width, height, preset, seed, file_path, prompt_id, lora_name, lora_strength, lora_stack_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (hld, width, height, preset, seed, stored_path, prompt_id, lora_name, lora_strength, lora_stack_json),
+        "INSERT INTO images (hld, width, height, preset, seed, file_path, prompt_id, lora_name, lora_strength, lora_stack_json, parent_image_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            hld,
+            width,
+            height,
+            preset,
+            seed,
+            stored_path,
+            prompt_id,
+            lora_name,
+            lora_strength,
+            lora_stack_json,
+            parent_image_id,
+        ),
     )
     conn.commit()
     image_id = _require_lastrowid(cur)

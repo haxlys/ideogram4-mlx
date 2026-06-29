@@ -3,6 +3,7 @@ import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FavoriteButton } from "@/components/FavoriteButton";
+import { ImageUpscaleButton } from "@/components/ImageUpscaleButton";
 import { ImageLoraMeta } from "@/components/ImageLoraMeta";
 import { ImagePreviewLightbox } from "@/components/ImagePreviewLightbox";
 import { PreviewableImage } from "@/components/PreviewableImage";
@@ -11,6 +12,7 @@ import { downloadImageFile, formSeedFromImage } from "@/lib/image";
 import { deleteImage } from "@/state/storage";
 import { useAppState } from "@/state/context";
 import { cn } from "@/lib/utils";
+import type { ImageEntry } from "@/state/types";
 import { Download, ImageIcon, Maximize2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -86,6 +88,12 @@ export function HistoryOutputPanel() {
     }
   }, [activeImage]);
 
+  const handleUpscaleComplete = useCallback((image: ImageEntry) => {
+    dispatch({ type: "ADD_IMAGE", entry: image });
+    dispatch({ type: "SHOW_RESULT", entry: image, pinned: true });
+    dispatch({ type: "REFRESH_HISTORY" });
+  }, [dispatch]);
+
   if (promptId == null) return null;
 
   const alt = activeImage?.hld?.slice(0, 100) ?? "Generated image";
@@ -116,6 +124,11 @@ export function HistoryOutputPanel() {
                 <FavoriteButton
                   imageId={activeImage.id}
                   className="text-amber-500 hover:text-amber-600"
+                />
+                <ImageUpscaleButton
+                  image={activeImage}
+                  className="text-foreground"
+                  onComplete={handleUpscaleComplete}
                 />
                 <Button
                   variant="ghost"
