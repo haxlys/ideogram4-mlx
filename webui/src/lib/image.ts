@@ -17,6 +17,7 @@ interface ImageRowLike {
   lora_name?: string | null;
   lora_strength?: number | null;
   lora_stack_json?: string | null;
+  parent_image_id?: number | null;
 }
 
 export function formSeedFromImage(seed: number | undefined | null): string | undefined {
@@ -193,6 +194,7 @@ export function imageEntryFromRow(
     width: row.width ?? undefined,
     height: row.height ?? undefined,
     historyLinked,
+    parent_image_id: row.parent_image_id ?? undefined,
     lora_name: row.lora_name,
     lora_strength: row.lora_strength,
     applied_loras: parseAppliedLoras(row),
@@ -225,6 +227,7 @@ export function imageEntryFromTask(image: {
   height?: number | null;
   applied_loras?: ImageEntry["applied_loras"];
   historyLinked?: boolean;
+  parent_image_id?: number | null;
 }): ImageEntry {
   return {
     id: image.id,
@@ -232,6 +235,7 @@ export function imageEntryFromTask(image: {
     hld: image.hld,
     time: image.time,
     prompt_id: image.prompt_id,
+    parent_image_id: image.parent_image_id ?? undefined,
     seed: image.seed ?? undefined,
     preset: image.preset ?? undefined,
     width: image.width ?? undefined,

@@ -9,8 +9,9 @@ import logging
 import os
 import threading
 import time
+import uuid
 
-from typing import Any
+from typing import Any, Literal
 import requests
 from urllib.parse import urlparse
 
@@ -38,6 +39,7 @@ from db import (
     get_prompt, resolve_image_path, get_image_by_file_path,
 )
 from logger import get_logger, get_log_file
+from upscaler import run_upscale, upscaler_status, validate_upscale_request
 
 logger = get_logger("server")
 
@@ -87,6 +89,9 @@ app.add_middleware(
 
 _tasks: dict = {}
 _tasks_lock = threading.Lock()
+_upscale_tasks: dict[str, dict[str, Any]] = {}
+_upscale_tasks_lock = threading.Lock()
+_upscale_worker_lock = threading.Lock()
 _TASK_TTL_SECONDS = 60 * 60
 
 
@@ -95,6 +100,20 @@ def _cleanup_tasks_locked():
     for task_id, task in list(_tasks.items()):
         if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
             del _tasks[task_id]
+
+
+def _cleanup_upscale_tasks_locked():
+    cutoff = time.time() - _TASK_TTL_SECONDS
+    for task_id, task in list(_upscale_tasks.items()):
+        if task.get("state") == "done" and task.get("done_at", task.get("created_at", 0)) < cutoff:
+            del _upscale_tasks[task_id]
+
+
+def _update_upscale_task(task_id: str, **updates: Any) -> None:
+    with _upscale_tasks_lock:
+        task = _upscale_tasks.get(task_id)
+        if task is not None:
+            task.update(updates)
 
 
 def _daemon_url(path: str) -> str:
@@ -147,6 +166,7 @@ def _task_image_from_row(row: dict, hld: str = "") -> dict:
         "hld": row.get("hld") or hld,
         "time": time.strftime("%H:%M:%S"),
         "prompt_id": row.get("prompt_id"),
+        "parent_image_id": row.get("parent_image_id"),
         "seed": row.get("seed"),
         "preset": row.get("preset"),
         "width": row.get("width"),
@@ -199,6 +219,83 @@ def _persist_daemon_artifact(task_id: str, meta: dict) -> dict:
     }
     logger.info("Persisted daemon artifact %s as image id=%s", filename, image_id)
     return _task_image_from_row(row, str(meta.get("hld", "")))
+
+
+def _run_upscale_task(task_id: str, source_row: dict, scale: int, preset: str) -> None:
+    try:
+        source_path = resolve_image_path(source_row["file_path"])
+        if source_path is None or not source_path.is_file():
+            _update_upscale_task(
+                task_id,
+                state="done",
+                msg="Source image file not found.",
+                error="Source image file not found.",
+                done_at=time.time(),
+            )
+            return
+
+        output_name = f"upscale-{source_row['id']}-{scale}x-{preset}-{task_id}.png"
+        _update_upscale_task(task_id, msg=f"Upscaling {scale}x with {preset}...", progress=5)
+        result = run_upscale(
+            source_path=source_path,
+            output_name=output_name,
+            scale=scale,
+            preset=preset,
+        )
+        source_hld = str(source_row.get("hld") or "").strip()
+        hld = f"{source_hld} [Upscaled {scale}x {preset}]" if source_hld else f"Upscaled image #{source_row['id']} {scale}x {preset}"
+        image_id = add_image(
+            hld,
+            result.width,
+            result.height,
+            f"upscale:{preset}:{scale}x",
+            int(source_row.get("seed") or 0),
+            result.output_path.name,
+            source_row.get("prompt_id"),
+            source_row.get("lora_name"),
+            source_row.get("lora_strength"),
+            source_row.get("lora_stack_json"),
+            parent_image_id=int(source_row["id"]),
+        )
+        row = get_image(image_id) or {
+            "id": image_id,
+            "hld": hld,
+            "prompt_id": source_row.get("prompt_id"),
+            "width": result.width,
+            "height": result.height,
+            "preset": f"upscale:{preset}:{scale}x",
+            "seed": int(source_row.get("seed") or 0),
+        }
+        image = _task_image_from_row(row, hld)
+        _update_upscale_task(
+            task_id,
+            state="done",
+            msg=f"Upscaled in {result.seconds:.1f}s",
+            progress=100,
+            image=image,
+            done_at=time.time(),
+        )
+        logger.info(
+            "Upscale task %s done: image %s -> %s (%sx %s, %.1fs)",
+            task_id,
+            source_row["id"],
+            image_id,
+            scale,
+            preset,
+            result.seconds,
+        )
+    except Exception as exc:
+        logger.exception("Upscale task %s failed", task_id)
+        _update_upscale_task(
+            task_id,
+            state="done",
+            msg=f"Error: {exc}",
+            error=str(exc),
+            progress=0,
+            done_at=time.time(),
+        )
+    finally:
+        _upscale_worker_lock.release()
 
 
 @app.on_event("startup")
@@ -584,6 +681,93 @@ def api_task_status(task_id: str):
         "total_steps": daemon_status.get("total_steps", 0),
         "error": daemon_status.get("error"),
         "cancelled": daemon_status.get("cancelled", False),
+    }
+
+
+# ── Upscaling ─────────────────────────────────────────────────────
+
+class UpscaleRequest(BaseModel):
+    image_id: int
+    scale: Literal[2, 4] = 4
+    preset: Literal["standard", "sharp"] = "standard"
+
+
+@app.get("/api/upscale/status")
+def api_upscale_status():
+    status = upscaler_status()
+    return {
+        "configured": status.configured,
+        "bin_path": status.bin_path,
+        "model_dir": status.model_dir,
+        "available_presets": status.available_presets,
+        "backend": status.backend,
+        "error": status.error,
+        "busy": _upscale_worker_lock.locked(),
+    }
+
+
+@app.post("/api/upscale")
+def api_upscale(req: UpscaleRequest):
+    with _upscale_tasks_lock:
+        _cleanup_upscale_tasks_locked()
+
+    source_row = get_image(req.image_id)
+    if source_row is None:
+        return JSONResponse(status_code=404, content={"error": "Image not found."})
+
+    source_path = resolve_image_path(source_row["file_path"])
+    if source_path is None or not source_path.is_file():
+        return JSONResponse(status_code=404, content={"error": "Image file not found."})
+
+    if not _upscale_worker_lock.acquire(blocking=False):
+        return JSONResponse(status_code=409, content={"error": "Another upscale job is already running."})
+
+    try:
+        validate_upscale_request(source_path, req.scale, req.preset)
+    except ValueError as exc:
+        _upscale_worker_lock.release()
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except RuntimeError as exc:
+        _upscale_worker_lock.release()
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+
+    task_id = uuid.uuid4().hex
+    with _upscale_tasks_lock:
+        _upscale_tasks[task_id] = {
+            "state": "running",
+            "msg": "Queued...",
+            "progress": 0,
+            "image": None,
+            "created_at": time.time(),
+            "source_image_id": req.image_id,
+            "scale": req.scale,
+            "preset": req.preset,
+        }
+    threading.Thread(
+        target=_run_upscale_task,
+        args=(task_id, source_row, req.scale, req.preset),
+        daemon=True,
+    ).start()
+    logger.info("Upscale task %s started: image=%s scale=%sx preset=%s", task_id, req.image_id, req.scale, req.preset)
+    return {"task_id": task_id}
+
+
+@app.get("/api/upscale/{task_id}")
+def api_upscale_task_status(task_id: str):
+    with _upscale_tasks_lock:
+        _cleanup_upscale_tasks_locked()
+        task = _upscale_tasks.get(task_id)
+    if task is None:
+        return JSONResponse(status_code=404, content={"error": "Upscale task not found."})
+    return {
+        "state": task.get("state", "done"),
+        "msg": task.get("msg", ""),
+        "progress": task.get("progress", 0),
+        "image": task.get("image"),
+        "error": task.get("error"),
+        "source_image_id": task.get("source_image_id"),
+        "scale": task.get("scale"),
+        "preset": task.get("preset"),
     }
 
 

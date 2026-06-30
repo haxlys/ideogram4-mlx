@@ -22,11 +22,13 @@ function GalleryGrid({
   images,
   onPreview,
   onDelete,
+  onUpscaleComplete,
   deleteLabel = "Delete image",
 }: {
   images: ImageEntry[];
   onPreview: (img: ImageEntry) => void;
   onDelete?: (img: ImageEntry) => void;
+  onUpscaleComplete?: (img: ImageEntry) => void;
   deleteLabel?: string;
 }) {
   return (
@@ -37,10 +39,12 @@ function GalleryGrid({
           src={img.url}
           alt={img.hld?.slice(0, 60) ?? "Generated image"}
           imageId={img.id}
+          image={img}
           historyPromptId={galleryImageHistoryPromptId(img)}
           caption={img.hld?.slice(0, 32)}
           previewHint={`Preview ${img.hld?.slice(0, 40) ?? "image"}`}
           onPreview={() => onPreview(img)}
+          onUpscaleComplete={onUpscaleComplete}
           onDelete={onDelete ? () => onDelete(img) : undefined}
           deleteLabel={deleteLabel}
         />
@@ -163,6 +167,29 @@ export function ResultGallery() {
     }
   }, [confirm, orphans.length, stats?.orphans]);
 
+  const handleLinkedUpscaleComplete = useCallback((image: ImageEntry) => {
+    dispatch({ type: "ADD_IMAGE", entry: image });
+    dispatch({ type: "REFRESH_HISTORY" });
+    invalidateImageCache();
+    setStats((prev) => prev ? { ...prev, total: prev.total + 1, linked: prev.linked + 1 } : prev);
+  }, [dispatch]);
+
+  const handleOrphanUpscaleComplete = useCallback((image: ImageEntry) => {
+    setOrphans((prev) => [image, ...prev.filter((entry) => entry.id !== image.id)]);
+    setPreviewImages((prev) => prev.length > 0 ? [image, ...prev] : prev);
+    invalidateImageCache();
+    setStats((prev) =>
+      prev
+        ? {
+            ...prev,
+            total: prev.total + 1,
+            orphans: prev.orphans + 1,
+            null_prompt_id: image.prompt_id == null ? prev.null_prompt_id + 1 : prev.null_prompt_id,
+          }
+        : prev,
+    );
+  }, []);
+
   const orphanCount = stats?.orphans ?? orphans.length;
 
   return (
@@ -179,6 +206,7 @@ export function ResultGallery() {
           images={state.images}
           onPreview={(img) => openPreview(img, state.images)}
           onDelete={(img) => void handleDeleteImage(img)}
+          onUpscaleComplete={handleLinkedUpscaleComplete}
         />
       )}
 
@@ -240,6 +268,7 @@ export function ResultGallery() {
                     src={img.url}
                     alt={img.hld?.slice(0, 60) ?? "Unlinked image"}
                     imageId={img.id}
+                    image={img}
                     historyPromptId={galleryImageHistoryPromptId(img)}
                     borderClassName="border-amber-500/30"
                     caption={
@@ -253,6 +282,7 @@ export function ResultGallery() {
                         : "Preview unlinked image"
                     }
                     onPreview={() => openPreview(img, orphans)}
+                    onUpscaleComplete={handleOrphanUpscaleComplete}
                     onDelete={() => void handleDeleteImage(img, { orphan: true })}
                     deleteLabel="Delete unlinked image"
                   />

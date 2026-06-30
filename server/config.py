@@ -49,6 +49,19 @@ OUTPUT_DIR = _resolve_path(os.environ.get("IDEOGRAM4_OUTPUT_DIR", ""), ROOT / "s
 LORA_DIR = _resolve_path(os.environ.get("IDEOGRAM4_LORA_DIR", ""), ROOT / "models" / "loras")
 MODEL_PATH = _resolve_path(_MODEL_PATH_RAW, ROOT / _MODEL_PATH_RAW) if _MODEL_PATH_RAW else None
 
+# ── Upscaler ───────────────────────────────────────────────────────
+_UPSCALER_BIN_RAW = os.environ.get("IDEOGRAM4_UPSCALER_BIN", "").strip()
+_UPSCALER_MODEL_DIR_RAW = os.environ.get("IDEOGRAM4_UPSCALER_MODEL_DIR", "").strip()
+UPSCALER_BIN = _resolve_path(_UPSCALER_BIN_RAW, ROOT / _UPSCALER_BIN_RAW) if _UPSCALER_BIN_RAW else None
+UPSCALER_MODEL_DIR = (
+    _resolve_path(_UPSCALER_MODEL_DIR_RAW, ROOT / _UPSCALER_MODEL_DIR_RAW)
+    if _UPSCALER_MODEL_DIR_RAW
+    else None
+)
+UPSCALER_TIMEOUT_SECONDS = float(os.environ.get("IDEOGRAM4_UPSCALER_TIMEOUT_SECONDS", "600"))
+UPSCALER_MAX_OUTPUT_PIXELS = int(os.environ.get("IDEOGRAM4_UPSCALER_MAX_OUTPUT_PIXELS", str(8192 * 8192)))
+UPSCALER_BACKEND = os.environ.get("IDEOGRAM4_UPSCALER_BACKEND", "realesrgan_ncnn").strip() or "realesrgan_ncnn"
+
 # ── Generation defaults ───────────────────────────────────────────
 DEFAULT_PRESET = os.environ.get("IDEOGRAM4_DEFAULT_PRESET", "V4_TURBO_12")
 DEFAULT_SERVER_FORMAT = os.environ.get("IDEOGRAM4_DEFAULT_FORMAT", "webp")

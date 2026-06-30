@@ -200,6 +200,34 @@ def check_magic_prompt() -> None:
         warn(f"Magic Prompt LLM is not currently reachable: {health_url}")
 
 
+def check_upscaler() -> None:
+    upscaler_bin = env("IDEOGRAM4_UPSCALER_BIN")
+    if upscaler_bin:
+        bin_path = Path(upscaler_bin).expanduser()
+    else:
+        found = shutil.which("realesrgan-ncnn-vulkan")
+        bin_path = Path(found) if found else None
+
+    if bin_path is None or not bin_path.is_file():
+        warn("Upscaler is not configured. Set IDEOGRAM4_UPSCALER_BIN to enable Real-ESRGAN upscaling.")
+        return
+
+    ok(f"Found Real-ESRGAN upscaler: {bin_path}")
+
+    model_dir_env = env("IDEOGRAM4_UPSCALER_MODEL_DIR")
+    model_dir = Path(model_dir_env).expanduser() if model_dir_env else bin_path.parent / "models"
+    if not model_dir.is_dir():
+        warn(f"Upscaler model directory not found: {model_dir}")
+        return
+
+    required = [model_dir / "realesrgan-x4plus.bin", model_dir / "realesrgan-x4plus.param"]
+    missing = [path.name for path in required if not path.is_file()]
+    if missing:
+        warn(f"Upscaler standard model files missing in {model_dir}: {', '.join(missing)}")
+    else:
+        ok(f"Upscaler standard model is ready: {model_dir}")
+
+
 def check_ports() -> None:
     ports = {
         "Magic Prompt LLM": int(env("IDEOGRAM4_MAGIC_PROMPT_LOCAL_LLAMA_PORT", "18082")),
@@ -235,6 +263,7 @@ def main() -> int:
     check_model()
     check_lora()
     check_magic_prompt()
+    check_upscaler()
     check_ports()
     check_memory_policy()
     print("")

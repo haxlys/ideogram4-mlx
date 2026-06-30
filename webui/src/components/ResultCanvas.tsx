@@ -2,11 +2,13 @@ import { useCallback, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppState } from "@/state/context";
 import { Button } from "@/components/ui/button";
+import { ImageUpscaleButton } from "@/components/ImageUpscaleButton";
 import { ImageLoraMeta } from "@/components/ImageLoraMeta";
 import { ImagePreviewLightbox } from "@/components/ImagePreviewLightbox";
 import { PreviewableImage } from "@/components/PreviewableImage";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { downloadImageFile } from "@/lib/image";
+import type { ImageEntry } from "@/state/types";
 import { Download, History, ImageIcon, Maximize2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +32,12 @@ export function ResultCanvas() {
       toast.error("Failed to download image");
     }
   }, [image]);
+
+  const handleUpscaleComplete = useCallback((upscaled: ImageEntry) => {
+    dispatch({ type: "ADD_IMAGE", entry: upscaled });
+    dispatch({ type: "SHOW_RESULT", entry: upscaled, pinned: true });
+    dispatch({ type: "REFRESH_HISTORY" });
+  }, [dispatch]);
 
   if (!image) {
     return (
@@ -97,6 +105,11 @@ export function ResultCanvas() {
               <FavoriteButton
                 imageId={image.id}
                 className="text-amber-500 hover:text-amber-600"
+              />
+              <ImageUpscaleButton
+                image={image}
+                className="text-foreground"
+                onComplete={handleUpscaleComplete}
               />
               {promptId != null && (
                 <Button
